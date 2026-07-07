@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Академічний журнал — Завантаження файлу</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-lg">
+        <!-- Card -->
+        <div class="bg-white/10 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-8">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-500/20 mb-4">
+                    <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold text-white">Академічний журнал</h1>
+                <p class="text-slate-400 mt-2 text-sm">
+                    Завантажте файл Excel або CSV із даними групи для створення журналу
+                </p>
+            </div>
+
+            <!-- Flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="mb-6 px-4 py-3 rounded-xl text-sm
+                            {% if category == 'error' %}
+                                bg-red-500/20 border border-red-500/30 text-red-300
+                            {% else %}
+                                bg-emerald-500/20 border border-emerald-500/30 text-emerald-300
+                            {% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Upload form -->
+            <form action="{{ url_for('handle_upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
+                <!-- Drop zone -->
+                <label for="fileInput"
+                       id="dropZone"
+                       class="relative flex flex-col items-center justify-center w-full h-48
+                              border-2 border-dashed border-white/20 rounded-xl cursor-pointer
+                              hover:border-indigo-400/50 hover:bg-white/5
+                              transition-all duration-300 group">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-6" id="dropContent">
+                        <svg class="w-10 h-10 mb-3 text-slate-500 group-hover:text-indigo-400 transition-colors"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                        <p class="mb-1 text-sm text-slate-400">
+                            <span class="font-semibold text-indigo-400">Натисніть для вибору</span> або перетягніть файл
+                        </p>
+                        <p class="text-xs text-slate-500">.xlsx, .xls, .csv</p>
+                    </div>
+                    <input id="fileInput" name="file" type="file" class="hidden"
+                           accept=".xlsx,.xls,.csv" />
+                </label>
+
+                <!-- Selected file name -->
+                <div id="fileName" class="hidden mt-3 px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/25
+                            text-indigo-300 text-sm flex items-center justify-between">
+                    <span id="fileNameText"></span>
+                    <button type="button" id="clearFile" class="ml-2 hover:text-white transition-colors">✕</button>
+                </div>
+
+                <!-- Submit button -->
+                <button type="submit"
+                        id="submitBtn"
+                        disabled
+                        class="mt-6 w-full py-3 px-4 rounded-xl font-semibold text-sm
+                               bg-indigo-600 text-white
+                               hover:bg-indigo-500 active:scale-[0.98]
+                               disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600
+                               transition-all duration-200 shadow-lg shadow-indigo-500/25">
+                    Завантажити та переглянути
+                </button>
+            </form>
+        </div>
+
+        <!-- Footer -->
+        <p class="text-center text-slate-600 text-xs mt-6">
+            Фаза 1 — Попередній перегляд даних
+        </p>
+    </div>
+
+    <script>
+        const fileInput  = document.getElementById('fileInput');
+        const dropZone   = document.getElementById('dropZone');
+        const fileName   = document.getElementById('fileName');
+        const fileText   = document.getElementById('fileNameText');
+        const clearBtn   = document.getElementById('clearFile');
+        const submitBtn  = document.getElementById('submitBtn');
+
+        function showFile(name) {
+            fileText.textContent = name;
+            fileName.classList.remove('hidden');
+            submitBtn.disabled = false;
+        }
+
+        function resetFile() {
+            fileInput.value = '';
+            fileName.classList.add('hidden');
+            submitBtn.disabled = true;
+        }
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) showFile(fileInput.files[0].name);
+        });
+
+        clearBtn.addEventListener('click', resetFile);
+
+        // Drag & drop visual feedback
+        ['dragenter', 'dragover'].forEach(evt =>
+            dropZone.addEventListener(evt, e => {
+                e.preventDefault();
+                dropZone.classList.add('border-indigo-400/50', 'bg-white/5');
+            })
+        );
+        ['dragleave', 'drop'].forEach(evt =>
+            dropZone.addEventListener(evt, e => {
+                e.preventDefault();
+                dropZone.classList.remove('border-indigo-400/50', 'bg-white/5');
+            })
+        );
+        dropZone.addEventListener('drop', e => {
+            const dt = e.dataTransfer;
+            if (dt.files.length > 0) {
+                fileInput.files = dt.files;
+                showFile(dt.files[0].name);
+            }
+        });
+    </script>
+</body>
+</html>
