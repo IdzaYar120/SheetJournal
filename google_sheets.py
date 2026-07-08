@@ -98,6 +98,12 @@ def create_academic_journal(
         existing_sheet.update_title(group_name)
         _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name)
 
+    # Create milestone sheets РК1 and РК2
+    if students:
+        actual_disciplines = disciplines if disciplines else [{"name": group_name, "class_count": 0}]
+        _create_milestone_sheet(spreadsheet, students, actual_disciplines, 1, group_name)
+        _create_milestone_sheet(spreadsheet, students, actual_disciplines, 2, group_name)
+
     return {
         "spreadsheet_id": spreadsheet.id,
         "spreadsheet_url": spreadsheet.url,
@@ -270,3 +276,200 @@ def _populate_discipline_sheet(
     })
 
     worksheet.spreadsheet.batch_update({"requests": requests})
+
+
+def _create_milestone_sheet(
+    spreadsheet: gspread.Spreadsheet,
+    students: list[str],
+    disciplines: list[dict],
+    milestone: int,  # 1 for РК1, 2 for РК2
+    group_name: str,
+) -> gspread.Worksheet:
+    """
+    Create and format a milestone control worksheet (РК1 or РК2).
+
+    Contains the student list and auto-calculating AVERAGE formulas for each
+    discipline based on the first or second half of class columns.
+    """
+    title = f"РК{milestone}"
+    total_cols = 2 + len(disciplines)
+    total_rows = 2 + len(students)
+
+    # Create the worksheet
+    worksheet = spreadsheet.add_worksheet(title=title, rows=max(total_rows, 20), cols=max(total_cols, 5))
+
+    # Build data
+    rows_data: list[list] = []
+
+    # Row 1: Title
+    title_text = f"Рубіжний контроль {milestone} (РК{milestone}) — {group_name}"
+    rows_data.append([title_text] + [""] * (total_cols - 1))
+
+    # Row 2: Headers
+    headers = ["№", "ПІБ студента"] + [d["name"] for d in disciplines]
+    rows_data.append(headers)
+
+    # Determine the first sheet to link names from
+    first_sheet_name = disciplines[0]["name"] if disciplines else group_name
+
+    # Row 3+: Student rows
+    for idx in range(1, len(students) + 1):
+        sheet_row = 2 + idx
+        # Dynamically reference student's name from the first sheet
+        student_ref = f"='{first_sheet_name}'!B{sheet_row}"
+
+        row = [idx, student_ref]
+
+        # Add formulas for each discipline
+        for d in disciplines:
+            d_name = d["name"]
+            num_classes = d.get("class_count") or 0
+            num_classes = max(num_classes, 1)
+            half = (num_classes + 1) // 2
+
+            if milestone == 1:
+                # First half of classes (Columns C to 2+half)
+                col_start = _col_letter(3)
+                col_end = _col_letter(2 + half)
+            else:
+                # Second half of classes
+                if num_classes <= 1:
+                    col_start = _col_letter(3)
+                    col_end = _col_letter(3)
+                else:
+                    col_start = _col_letter(3 + half)
+                    col_end = _col_letter(2 + num_classes)
+
+            # We use IFERROR and AVERAGE to avoid division by zero when cells are empty.
+            # Using commas for arguments since the API expects US/English formulas.
+            formula = f"=IFERROR(AVERAGE('{d_name}'!{col_start}{sheet_row}:{col_end}{sheet_row}), \"\")"
+            row.append(formula)
+
+        rows_data.append(row)
+
+    # Write to sheet
+    end_cell = rowcol_to_a1(len(rows_data), total_cols)
+    worksheet.update(f"A1:{end_cell}", rows_data, value_input_option="USER_ENTERED")
+
+    # Formatting
+    last_col_letter = _col_letter(total_cols)
+    formats = []
+
+    # Row 1 format: Bold, white text, different color depending on milestone
+    if milestone == 1:
+        bg_color = {"red": 0.44, "green": 0.16, "blue": 0.39}  # Purple
+    else:
+        bg_color = {"red": 0.1, "green": 0.45, "blue": 0.45}  # Dark Teal
+
+    formats.append({
+        "range": f"A1:{last_col_letter}1",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 13, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": bg_color,
+        },
+    })
+
+    worksheet.merge_cells(f"A1:{last_col_letter}1", merge_type="MERGE_ALL")
+
+    # Row 2 format: Header
+    formats.append({
+        "range": f"A2:{last_col_letter}2",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 10},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": {"red": 0.9, "green": 0.92, "blue": 0.98},
+        },
+    })
+
+    # Student name column
+    formats.append({
+        "range": f"B3:B{total_rows}",
+        "format": {
+            "horizontalAlignment": "LEFT",
+            "verticalAlignment": "MIDDLE",
+        },
+    })
+
+    # Other columns: centered
+    formats.append({
+        "range": f"A3:A{total_rows}",
+        "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+    })
+
+    if len(disciplines) > 0:
+        disc_start = _col_letter(3)
+        formats.append({
+            "range": f"{disc_start}3:{last_col_letter}{total_rows}",
+            "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+        })
+
+    worksheet.batch_format(formats)
+    worksheet.freeze(rows=2, cols=2)
+
+    # Column widths
+    requests = [
+        {
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 0,
+                    "endIndex": 1,
+                },
+                "properties": {"pixelSize": 40},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 1,
+                    "endIndex": 2,
+                },
+                "properties": {"pixelSize": 280},
+                "fields": "pixelSize",
+            }
+        },
+    ]
+    if len(disciplines) > 0:
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 2,
+                    "endIndex": total_cols,
+                },
+                "properties": {"pixelSize": 120},
+                "fields": "pixelSize",
+            }
+        })
+
+    # Borders
+    border_style = {"style": "SOLID", "color": {"red": 0.7, "green": 0.7, "blue": 0.7}}
+    requests.append({
+        "updateBorders": {
+            "range": {
+                "sheetId": worksheet.id,
+                "startRowIndex": 1,
+                "endRowIndex": total_rows,
+                "startColumnIndex": 0,
+                "endColumnIndex": total_cols,
+            },
+            "top": border_style,
+            "bottom": border_style,
+            "left": border_style,
+            "right": border_style,
+            "innerHorizontal": border_style,
+            "innerVertical": border_style,
+        }
+    })
+
+    worksheet.spreadsheet.batch_update({"requests": requests})
+    return worksheet
+
