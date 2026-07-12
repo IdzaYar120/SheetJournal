@@ -75,6 +75,7 @@
                         <tr class="text-xs uppercase tracking-wider text-slate-400 border-b border-white/10">
                             <th class="px-6 py-3 font-medium">№</th>
                             <th class="px-6 py-3 font-medium">Назва дисципліни</th>
+                            <th class="px-6 py-3 font-medium text-center">Контроль</th>
                             <th class="px-6 py-3 font-medium text-right">Кількість пар</th>
                         </tr>
                     </thead>
@@ -83,6 +84,19 @@
                         <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td class="px-6 py-4 text-slate-500">{{ loop.index }}</td>
                             <td class="px-6 py-4 text-white font-medium">{{ d.name }}</td>
+                            <td class="px-6 py-4 text-center">
+                                {% if d.control_type == 'exam' %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                                 bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                        Екзамен (60+40)
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                                 bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                        Залік (100)
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td class="px-6 py-4 text-right">
                                 {% if d.class_count is not none %}
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium

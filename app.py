@@ -160,7 +160,17 @@ def parse_uploaded_file(filepath: str) -> dict:
             if not series.empty:
                 # Use the first student's value as the representative count.
                 count = int(series.iloc[0])
-            disciplines.append({"name": col, "class_count": count})
+
+            # Detect control type (exam vs graded credit) based on keywords in name.
+            col_lower = col.lower()
+            is_exam = any(kw in col_lower for kw in ["екзамен", "екз", "exam"])
+            control_type = "exam" if is_exam else "credit"
+
+            disciplines.append({
+                "name": col,
+                "class_count": count,
+                "control_type": control_type
+            })
 
         return {
             "group_name": group_name,

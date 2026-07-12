@@ -82,6 +82,7 @@ def create_academic_journal(
     for disc in disciplines:
         disc_name = disc["name"]
         class_count = disc.get("class_count") or 0
+        control_type = disc.get("control_type", "credit")
 
         if not created_first:
             # Rename the default sheet instead of creating a new one.
@@ -91,12 +92,12 @@ def create_academic_journal(
         else:
             worksheet = spreadsheet.add_worksheet(title=disc_name, rows=1, cols=1)
 
-        _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name)
+        _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name, control_type)
 
     # If no disciplines were provided, set up a generic sheet.
     if not created_first:
         existing_sheet.update_title(group_name)
-        _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name)
+        _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name, "credit")
 
     # Create milestone sheets РК1 and РК2, and semester sheet
     if students:
@@ -118,18 +119,23 @@ def _populate_discipline_sheet(
     discipline_name: str,
     class_count: int,
     group_name: str,
+    control_type: str = "credit",
 ) -> None:
     """
     Fill and format a single discipline worksheet.
 
     Layout:
         Row 1: Group name (merged across header) + discipline name
-        Row 2: Headers — "№" | "ПІБ студента" | 1 | 2 | 3 | … | N
+        Row 2: Headers — "№" | "ПІБ студента" | 1 | 2 | 3 | … | N [ | Екзамен (макс. 40) ]
         Row 3+: Student data rows.
     """
     # Ensure minimum class columns.
     class_count = max(class_count, 1)
-    total_cols = 2 + class_count  # "№" + "ПІБ" + class columns
+    is_exam = (control_type == "exam")
+    total_cols = 2 + class_count
+    if is_exam:
+        total_cols += 1
+
     total_rows = 2 + len(students)  # 2 header rows + student rows
 
     # Resize the worksheet to fit the data.
@@ -139,16 +145,23 @@ def _populate_discipline_sheet(
     rows_data: list[list] = []
 
     # Row 1: Group + discipline label (will be merged visually).
-    row1 = [f"{group_name} — {discipline_name}"] + [""] * (total_cols - 1)
+    label = f"{group_name} — {discipline_name}"
+    if is_exam:
+        label += " (Екзамен)"
+    row1 = [label] + [""] * (total_cols - 1)
     rows_data.append(row1)
 
     # Row 2: Column headers.
     header = ["№", "ПІБ студента"] + [str(i) for i in range(1, class_count + 1)]
+    if is_exam:
+        header.append("Екзамен (макс. 40)")
     rows_data.append(header)
 
     # Student rows.
     for idx, name in enumerate(students, start=1):
         row = [idx, name] + [""] * class_count
+        if is_exam:
+            row.append("")
         rows_data.append(row)
 
     # Write everything in a single batch call.
@@ -243,18 +256,32 @@ def _populate_discipline_sheet(
         },
     ]
     if class_count > 0:
+        end_class_idx = 2 + class_count
         requests.append({
             "updateDimensionProperties": {
                 "range": {
                     "sheetId": worksheet.id,
                     "dimension": "COLUMNS",
                     "startIndex": 2,
-                    "endIndex": total_cols,
+                    "endIndex": end_class_idx,
                 },
                 "properties": {"pixelSize": 35},
                 "fields": "pixelSize",
             }
         })
+        if is_exam:
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": end_class_idx,
+                        "endIndex": end_class_idx + 1,
+                    },
+                    "properties": {"pixelSize": 90},
+                    "fields": "pixelSize",
+                }
+            })
 
     # Add borders to the entire data area.
     border_style = {"style": "SOLID", "color": {"red": 0.7, "green": 0.7, "blue": 0.7}}
@@ -485,10 +512,19 @@ def _create_semester_sheet(
     Create and format a semester summary worksheet ("Семестр").
 
     Contains the student list and auto-calculating formulas that average the
-    РК1 and РК2 grades for each discipline.
+    РК1 and РК2 grades for each discipline. For exam disciplines, it handles
+    a 60/40 split (60% semester average + 40% exam grade).
     """
     title = "Семестр"
-    total_cols = 2 + len(disciplines)
+
+    # Calculate total columns based on control type of each discipline
+    total_cols = 2
+    for d in disciplines:
+        if d.get("control_type", "credit") == "exam":
+            total_cols += 3
+        else:
+            total_cols += 1
+
     total_rows = 2 + len(students)
 
     # Create the worksheet
@@ -502,7 +538,17 @@ def _create_semester_sheet(
     rows_data.append([title_text] + [""] * (total_cols - 1))
 
     # Row 2: Headers
-    headers = ["№", "ПІБ студента"] + [d["name"] for d in disciplines]
+    headers = ["№", "ПІБ студента"]
+    for d in disciplines:
+        d_name = d["name"]
+        if d.get("control_type", "credit") == "exam":
+            headers.extend([
+                f"{d_name} (Сем. 60%)",
+                f"{d_name} (Екз. 40%)",
+                f"{d_name} (Всього)"
+            ])
+        else:
+            headers.append(f"{d_name} (Залік)")
     rows_data.append(headers)
 
     # Row 3+: Student rows
@@ -514,12 +560,36 @@ def _create_semester_sheet(
         row = [idx, student_ref]
 
         # Add formulas for each discipline
-        for d_idx in range(len(disciplines)):
+        for d_idx, d in enumerate(disciplines):
+            d_name = d["name"]
             # The discipline columns start at column index 3 (Column C) in both РК1 and РК2 sheets.
-            col_letter = _col_letter(3 + d_idx)
-            # Calculate the average of РК1 and РК2 for this cell
-            formula = f"=IFERROR(AVERAGE('РК1'!{col_letter}{sheet_row}, 'РК2'!{col_letter}{sheet_row}), \"\")"
-            row.append(formula)
+            rk_col_letter = _col_letter(3 + d_idx)
+            control_type = d.get("control_type", "credit")
+
+            if control_type == "exam":
+                # 1. Semester score (60%): average of РК1 and РК2 * 0.6
+                formula_sem = f"=IFERROR(AVERAGE('РК1'!{rk_col_letter}{sheet_row}, 'РК2'!{rk_col_letter}{sheet_row}) * 0.6, \"\")"
+                row.append(formula_sem)
+
+                # 2. Exam score (40%): link to individual discipline sheet's last column (Exam column)
+                class_count = d.get("class_count") or 0
+                class_count = max(class_count, 1)
+                # Exam column is at index 3 + class_count (since №, ПІБ + classes cols + exam col)
+                exam_col_letter = _col_letter(3 + class_count)
+                formula_exam = f"='{d_name}'!{exam_col_letter}{sheet_row}"
+                row.append(formula_exam)
+
+                # 3. Total (Sum of Semester 60% and Exam 40%)
+                c1_idx = len(row) - 1  # 1-based index of Semester 60% col
+                c2_idx = len(row)      # 1-based index of Exam 40% col
+                c1_letter = _col_letter(c1_idx)
+                c2_letter = _col_letter(c2_idx)
+                formula_total = f"=IFERROR(SUM({c1_letter}{sheet_row}, {c2_letter}{sheet_row}), \"\")"
+                row.append(formula_total)
+            else:
+                # Credit (100%): average of РК1 and РК2
+                formula_credit = f"=IFERROR(AVERAGE('РК1'!{rk_col_letter}{sheet_row}, 'РК2'!{rk_col_letter}{sheet_row}), \"\")"
+                row.append(formula_credit)
 
         rows_data.append(row)
 
@@ -572,7 +642,7 @@ def _create_semester_sheet(
         "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
     })
 
-    if len(disciplines) > 0:
+    if total_cols > 2:
         disc_start = _col_letter(3)
         formats.append({
             "range": f"{disc_start}3:{last_col_letter}{total_rows}",
@@ -609,19 +679,61 @@ def _create_semester_sheet(
             }
         },
     ]
-    if len(disciplines) > 0:
-        requests.append({
-            "updateDimensionProperties": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "dimension": "COLUMNS",
-                    "startIndex": 2,
-                    "endIndex": total_cols,
-                },
-                "properties": {"pixelSize": 120},
-                "fields": "pixelSize",
-            }
-        })
+
+    col_idx = 2
+    for d in disciplines:
+        if d.get("control_type", "credit") == "exam":
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": col_idx,
+                        "endIndex": col_idx + 1,
+                    },
+                    "properties": {"pixelSize": 110},
+                    "fields": "pixelSize",
+                }
+            })
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": col_idx + 1,
+                        "endIndex": col_idx + 2,
+                    },
+                    "properties": {"pixelSize": 90},
+                    "fields": "pixelSize",
+                }
+            })
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": col_idx + 2,
+                        "endIndex": col_idx + 3,
+                    },
+                    "properties": {"pixelSize": 90},
+                    "fields": "pixelSize",
+                }
+            })
+            col_idx += 3
+        else:
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": col_idx,
+                        "endIndex": col_idx + 1,
+                    },
+                    "properties": {"pixelSize": 120},
+                    "fields": "pixelSize",
+                }
+            })
+            col_idx += 1
 
     # Borders
     border_style = {"style": "SOLID", "color": {"red": 0.7, "green": 0.7, "blue": 0.7}}
