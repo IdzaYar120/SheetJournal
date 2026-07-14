@@ -74,7 +74,8 @@ def create_academic_journal(
         spreadsheet.share("", perm_type="anyone", role="reader")
 
     # ---------------------------------------------------------------
-    # Create one worksheet (tab) per discipline.
+    # ---------------------------------------------------------------
+    # Create one worksheet (tab) per discipline / course project.
     # ---------------------------------------------------------------
     existing_sheet = spreadsheet.sheet1  # Default "Sheet1" — will be renamed or deleted.
     created_first = False
@@ -84,15 +85,24 @@ def create_academic_journal(
         class_count = disc.get("class_count") or 0
         control_type = disc.get("control_type", "credit")
 
+        # Determine tab title: course projects get КП prefix
+        if control_type == "course_project":
+            tab_title = f"КП — {disc_name}"
+        else:
+            tab_title = disc_name
+
         if not created_first:
             # Rename the default sheet instead of creating a new one.
             worksheet = existing_sheet
-            worksheet.update_title(disc_name)
+            worksheet.update_title(tab_title)
             created_first = True
         else:
-            worksheet = spreadsheet.add_worksheet(title=disc_name, rows=1, cols=1)
+            worksheet = spreadsheet.add_worksheet(title=tab_title, rows=1, cols=1)
 
-        _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name, control_type)
+        if control_type == "course_project":
+            _populate_course_project_sheet(worksheet, students, disc_name, group_name)
+        else:
+            _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name, control_type)
 
     # If no disciplines were provided, set up a generic sheet.
     if not created_first:
@@ -101,9 +111,15 @@ def create_academic_journal(
 
     # Create milestone sheets РК1 and РК2, and semester sheet
     if students:
-        actual_disciplines = disciplines if disciplines else [{"name": group_name, "class_count": 0}]
-        _create_milestone_sheet(spreadsheet, students, actual_disciplines, 1, group_name)
-        _create_milestone_sheet(spreadsheet, students, actual_disciplines, 2, group_name)
+        actual_disciplines = disciplines if disciplines else [{"name": group_name, "class_count": 0, "control_type": "credit"}]
+        
+        # РК1 and РК2 only include non-course-project disciplines
+        milestone_disciplines = [d for d in actual_disciplines if d.get("control_type", "credit") != "course_project"]
+        if not milestone_disciplines:
+            milestone_disciplines = [{"name": group_name, "class_count": 0, "control_type": "credit"}]
+            
+        _create_milestone_sheet(spreadsheet, students, milestone_disciplines, 1, group_name)
+        _create_milestone_sheet(spreadsheet, students, milestone_disciplines, 2, group_name)
         _create_semester_sheet(spreadsheet, students, actual_disciplines, group_name)
 
     return {
@@ -757,5 +773,146 @@ def _create_semester_sheet(
 
     worksheet.spreadsheet.batch_update({"requests": requests})
     return worksheet
+
+
+def _populate_course_project_sheet(
+    worksheet: gspread.Worksheet,
+    students: list[str],
+    discipline_name: str,
+    group_name: str,
+) -> None:
+    """
+    Fill and format a course project (КП/КР) worksheet.
+
+    Layout:
+        Row 1: Group name + "Курсовий проект з дисципліни:" + discipline name
+        Row 2: Headers — "№" | "ПІБ студента" | "Тема курсового проекту / роботи"
+                         | "Член комісії 1" | "Член комісії 2" | "Член комісії 3" | "Середній бал"
+        Row 3+: Student rows (referencing first sheet name if appropriate).
+    """
+    total_cols = 7  # №, ПІБ, Тема, 3 members, Average
+    total_rows = 2 + len(students)
+
+    worksheet.resize(rows=max(total_rows, 20), cols=total_cols)
+
+    rows_data: list[list] = []
+
+    # Row 1: Title
+    title_text = f"{group_name} — Захист курсового проекту з дисципліни: {discipline_name}"
+    rows_data.append([title_text] + [""] * (total_cols - 1))
+
+    # Row 2: Headers
+    headers = [
+        "№",
+        "ПІБ студента",
+        "Тема курсового проекту / роботи",
+        "Член комісії 1",
+        "Член комісії 2",
+        "Член комісії 3",
+        "Середній бал"
+    ]
+    rows_data.append(headers)
+
+    for idx, name in enumerate(students, start=1):
+        sheet_row = 2 + idx
+        # Formula for average: AVERAGE(D{row}:F{row})
+        formula_avg = f"=IFERROR(AVERAGE(D{sheet_row}:F{sheet_row}), \"\")"
+        row = [
+            idx,
+            name,
+            "",  # Theme (empty, to be filled by teacher)
+            "",  # Member 1
+            "",  # Member 2
+            "",  # Member 3
+            formula_avg
+        ]
+        rows_data.append(row)
+
+    # Write data
+    end_cell = rowcol_to_a1(len(rows_data), total_cols)
+    worksheet.update(f"A1:{end_cell}", rows_data, value_input_option="USER_ENTERED")
+
+    # Formatting
+    last_col_letter = _col_letter(total_cols)
+    formats = []
+
+    # Row 1 format: Bold, white text, rust/brown background color
+    bg_color = {"red": 0.58, "green": 0.27, "blue": 0.21}  # Rust / terracotta
+
+    formats.append({
+        "range": f"A1:{last_col_letter}1",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": bg_color,
+        },
+    })
+
+    worksheet.merge_cells(f"A1:{last_col_letter}1", merge_type="MERGE_ALL")
+
+    # Row 2 format: Header
+    formats.append({
+        "range": f"A2:{last_col_letter}2",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 10},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": {"red": 0.9, "green": 0.92, "blue": 0.98},
+        },
+    })
+
+    # Columns A, D, E, F, G - centered alignment
+    formats.append({
+        "range": f"A3:A{total_rows}",
+        "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+    })
+    formats.append({
+        "range": f"D3:G{total_rows}",
+        "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+    })
+
+    # Columns B, C - left alignment
+    formats.append({
+        "range": f"B3:C{total_rows}",
+        "format": {"horizontalAlignment": "LEFT", "verticalAlignment": "MIDDLE"},
+    })
+
+    worksheet.batch_format(formats)
+    worksheet.freeze(rows=2, cols=2)
+
+    # Column widths
+    requests = [
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1}, "properties": {"pixelSize": 40}, "fields": "pixelSize"}},
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2}, "properties": {"pixelSize": 280}, "fields": "pixelSize"}},
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 2, "endIndex": 3}, "properties": {"pixelSize": 300}, "fields": "pixelSize"}},  # Topic
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 3, "endIndex": 4}, "properties": {"pixelSize": 120}, "fields": "pixelSize"}},  # Member 1
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 4, "endIndex": 5}, "properties": {"pixelSize": 120}, "fields": "pixelSize"}},  # Member 2
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 5, "endIndex": 6}, "properties": {"pixelSize": 120}, "fields": "pixelSize"}},  # Member 3
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 7}, "properties": {"pixelSize": 100}, "fields": "pixelSize"}},  # Average
+    ]
+
+    # Borders
+    border_style = {"style": "SOLID", "color": {"red": 0.7, "green": 0.7, "blue": 0.7}}
+    requests.append({
+        "updateBorders": {
+            "range": {
+                "sheetId": worksheet.id,
+                "startRowIndex": 1,
+                "endRowIndex": total_rows,
+                "startColumnIndex": 0,
+                "endColumnIndex": total_cols,
+            },
+            "top": border_style,
+            "bottom": border_style,
+            "left": border_style,
+            "right": border_style,
+            "innerHorizontal": border_style,
+            "innerVertical": border_style,
+        }
+    })
+
+    worksheet.spreadsheet.batch_update({"requests": requests})
+
 
 

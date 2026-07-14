@@ -161,10 +161,23 @@ def parse_uploaded_file(filepath: str) -> dict:
                 # Use the first student's value as the representative count.
                 count = int(series.iloc[0])
 
-            # Detect control type (exam vs graded credit) based on keywords in name.
-            col_lower = col.lower()
-            is_exam = any(kw in col_lower for kw in ["екзамен", "екз", "exam"])
-            control_type = "exam" if is_exam else "credit"
+            # Detect control type (course project, exam, graded credit)
+            col_lower = col.lower().strip()
+            is_cp = False
+            for kw in ["курсов", "course project", "coursework", "course work"]:
+                if kw in col_lower:
+                    is_cp = True
+                    break
+            if not is_cp:
+                tokens = col_lower.replace("(", " ").replace(")", " ").replace(".", " ").replace(",", " ").split()
+                if any(t in tokens for t in ["кп", "кр", "kp", "kr"]):
+                    is_cp = True
+
+            if is_cp:
+                control_type = "course_project"
+            else:
+                is_exam = any(kw in col_lower for kw in ["екзамен", "екз", "exam"])
+                control_type = "exam" if is_exam else "credit"
 
             disciplines.append({
                 "name": col,
