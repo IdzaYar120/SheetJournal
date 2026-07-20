@@ -109,7 +109,7 @@ def create_academic_journal(
         existing_sheet.update_title(group_name)
         _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name, "credit")
 
-    # Create milestone sheets РК1 and РК2, and semester sheet
+    # Create milestone sheets РК1 and РК2, semester sheet, and general summary report sheet
     if students:
         actual_disciplines = disciplines if disciplines else [{"name": group_name, "class_count": 0, "control_type": "credit"}]
         
@@ -121,6 +121,7 @@ def create_academic_journal(
         _create_milestone_sheet(spreadsheet, students, milestone_disciplines, 1, group_name)
         _create_milestone_sheet(spreadsheet, students, milestone_disciplines, 2, group_name)
         _create_semester_sheet(spreadsheet, students, actual_disciplines, group_name)
+        _create_summary_report_sheet(spreadsheet, students, actual_disciplines, group_name)
 
     return {
         "spreadsheet_id": spreadsheet.id,
@@ -557,12 +558,15 @@ def _create_semester_sheet(
     headers = ["№", "ПІБ студента"]
     for d in disciplines:
         d_name = d["name"]
-        if d.get("control_type", "credit") == "exam":
+        ctype = d.get("control_type", "credit")
+        if ctype == "exam":
             headers.extend([
                 f"{d_name} (Сем. 60%)",
                 f"{d_name} (Екз. 40%)",
                 f"{d_name} (Всього)"
             ])
+        elif ctype == "course_project":
+            headers.append(f"{d_name} (КП)")
         else:
             headers.append(f"{d_name} (Залік)")
     rows_data.append(headers)
@@ -575,14 +579,16 @@ def _create_semester_sheet(
 
         row = [idx, student_ref]
 
+        rk_disc_counter = 0
         # Add formulas for each discipline
-        for d_idx, d in enumerate(disciplines):
+        for d in disciplines:
             d_name = d["name"]
-            # The discipline columns start at column index 3 (Column C) in both РК1 and РК2 sheets.
-            rk_col_letter = _col_letter(3 + d_idx)
             control_type = d.get("control_type", "credit")
 
             if control_type == "exam":
+                rk_col_letter = _col_letter(3 + rk_disc_counter)
+                rk_disc_counter += 1
+
                 # 1. Semester score (60%): average of РК1 and РК2 * 0.6
                 formula_sem = f"=IFERROR(AVERAGE('РК1'!{rk_col_letter}{sheet_row}, 'РК2'!{rk_col_letter}{sheet_row}) * 0.6, \"\")"
                 row.append(formula_sem)
@@ -602,8 +608,14 @@ def _create_semester_sheet(
                 c2_letter = _col_letter(c2_idx)
                 formula_total = f"=IFERROR(SUM({c1_letter}{sheet_row}, {c2_letter}{sheet_row}), \"\")"
                 row.append(formula_total)
+            elif control_type == "course_project":
+                # Link to 'КП — {d_name}'!G{sheet_row} (Column G is "Середній бал")
+                formula_kp = f"='КП — {d_name}'!G{sheet_row}"
+                row.append(formula_kp)
             else:
                 # Credit (100%): average of РК1 and РК2
+                rk_col_letter = _col_letter(3 + rk_disc_counter)
+                rk_disc_counter += 1
                 formula_credit = f"=IFERROR(AVERAGE('РК1'!{rk_col_letter}{sheet_row}, 'РК2'!{rk_col_letter}{sheet_row}), \"\")"
                 row.append(formula_credit)
 
@@ -913,6 +925,230 @@ def _populate_course_project_sheet(
     })
 
     worksheet.spreadsheet.batch_update({"requests": requests})
+
+
+def _create_summary_report_sheet(
+    spreadsheet: gspread.Spreadsheet,
+    students: list[str],
+    disciplines: list[dict],
+    group_name: str,
+) -> gspread.Worksheet:
+    """
+    Create and format a general semester summary report worksheet ("Загальна звітність").
+
+    Contains student list, final grades for every discipline (linked from 'Семестр'),
+    calculated GPA, academic status, and group average summary row at the bottom.
+    """
+    title = "Загальна звітність"
+    total_cols = 2 + len(disciplines) + 2  # №, ПІБ, [disciplines...], Середній бал, Результат
+    total_rows = 3 + len(students)  # 2 header rows + student rows + 1 group summary row
+
+    worksheet = spreadsheet.add_worksheet(title=title, rows=max(total_rows, 20), cols=max(total_cols, 6))
+
+    # Pre-calculate the column letter in 'Семестр' sheet for each discipline's final grade
+    semester_final_col_letters = []
+    sem_col_idx = 3
+    for d in disciplines:
+        ctype = d.get("control_type", "credit")
+        if ctype == "exam":
+            # Exam has 3 cols in 'Семестр': Semic 60%, Exam 40%, Total
+            final_col = sem_col_idx + 2
+            sem_col_idx += 3
+        else:
+            # Credit and Course Project have 1 col in 'Семестр'
+            final_col = sem_col_idx
+            sem_col_idx += 1
+        semester_final_col_letters.append(_col_letter(final_col))
+
+    rows_data: list[list] = []
+
+    # Row 1: Title
+    title_text = f"Загальна звітність успішності за семестр — {group_name}"
+    rows_data.append([title_text] + [""] * (total_cols - 1))
+
+    # Row 2: Headers
+    headers = ["№", "ПІБ студента"]
+    for d in disciplines:
+        d_name = d["name"]
+        ctype = d.get("control_type", "credit")
+        if ctype == "exam":
+            headers.append(f"{d_name} (Екз)")
+        elif ctype == "course_project":
+            headers.append(f"{d_name} (КП)")
+        else:
+            headers.append(f"{d_name} (Залік)")
+    headers.extend(["Середній бал", "Результат"])
+    rows_data.append(headers)
+
+    # Row 3 to 2+len(students): Student rows
+    disc_start_col = "C"
+    disc_end_col = _col_letter(2 + len(disciplines))
+    gpa_col = _col_letter(2 + len(disciplines) + 1)
+    status_col = _col_letter(2 + len(disciplines) + 2)
+
+    for idx in range(1, len(students) + 1):
+        sheet_row = 2 + idx
+        student_ref = f"='РК1'!B{sheet_row}"
+        row = [idx, student_ref]
+
+        for sem_col_let in semester_final_col_letters:
+            row.append(f"='Семестр'!{sem_col_let}{sheet_row}")
+
+        # GPA formula
+        formula_gpa = f"=IFERROR(AVERAGE({disc_start_col}{sheet_row}:{disc_end_col}{sheet_row}), \"\")"
+        row.append(formula_gpa)
+
+        # Result status formula
+        formula_status = f"=IF({disc_start_col}{sheet_row}=\"\", \"\", IF(MIN({disc_start_col}{sheet_row}:{disc_end_col}{sheet_row})>=60, \"Атестовано\", \"Заборгованість\"))"
+        row.append(formula_status)
+
+        rows_data.append(row)
+
+    # Bottom summary row (Group Averages)
+    last_student_row = 2 + len(students)
+    summary_row = ["", "Середній бал групи:"]
+
+    for d_i in range(len(disciplines)):
+        c_let = _col_letter(3 + d_i)
+        summary_row.append(f"=IFERROR(AVERAGE({c_let}3:{c_let}{last_student_row}), \"\")")
+
+    # Group average GPA
+    summary_row.append(f"=IFERROR(AVERAGE({gpa_col}3:{gpa_col}{last_student_row}), \"\")")
+    # Group pass count
+    summary_row.append(f"=IFERROR(COUNTIF({status_col}3:{status_col}{last_student_row}, \"Атестовано\"), \"\")")
+
+    rows_data.append(summary_row)
+
+    # Write data
+    end_cell = rowcol_to_a1(len(rows_data), total_cols)
+    worksheet.update(f"A1:{end_cell}", rows_data, value_input_option="USER_ENTERED")
+
+    # Formatting
+    last_col_letter = _col_letter(total_cols)
+    formats = []
+
+    # Row 1 format: Bold, white text, forest/emerald green
+    bg_color = {"red": 0.08, "green": 0.32, "blue": 0.22}  # Forest Emerald
+
+    formats.append({
+        "range": f"A1:{last_col_letter}1",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 13, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": bg_color,
+        },
+    })
+
+    worksheet.merge_cells(f"A1:{last_col_letter}1", merge_type="MERGE_ALL")
+
+    # Row 2 format: Header
+    formats.append({
+        "range": f"A2:{last_col_letter}2",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 10},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "backgroundColor": {"red": 0.9, "green": 0.92, "blue": 0.98},
+        },
+    })
+
+    # Student name column (B)
+    formats.append({
+        "range": f"B3:B{total_rows}",
+        "format": {
+            "horizontalAlignment": "LEFT",
+            "verticalAlignment": "MIDDLE",
+        },
+    })
+
+    # Other columns: centered
+    formats.append({
+        "range": f"A3:A{total_rows}",
+        "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+    })
+
+    if total_cols > 2:
+        disc_start = _col_letter(3)
+        formats.append({
+            "range": f"{disc_start}3:{last_col_letter}{total_rows}",
+            "format": {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
+        })
+
+    # Summary row format (bottom row): bold text, light mint background
+    summary_row_idx = total_rows
+    formats.append({
+        "range": f"A{summary_row_idx}:{last_col_letter}{summary_row_idx}",
+        "format": {
+            "textFormat": {"bold": True, "fontSize": 10},
+            "backgroundColor": {"red": 0.88, "green": 0.95, "blue": 0.90},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+        },
+    })
+
+    worksheet.batch_format(formats)
+    worksheet.freeze(rows=2, cols=2)
+
+    # Column widths
+    requests = [
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1}, "properties": {"pixelSize": 40}, "fields": "pixelSize"}},
+        {"updateDimensionProperties": {"range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2}, "properties": {"pixelSize": 280}, "fields": "pixelSize"}},
+    ]
+
+    col_idx = 2
+    for _ in disciplines:
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": col_idx, "endIndex": col_idx + 1},
+                "properties": {"pixelSize": 140},
+                "fields": "pixelSize",
+            }
+        })
+        col_idx += 1
+
+    # GPA column width
+    requests.append({
+        "updateDimensionProperties": {
+            "range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": col_idx, "endIndex": col_idx + 1},
+            "properties": {"pixelSize": 120},
+            "fields": "pixelSize",
+        }
+    })
+    col_idx += 1
+
+    # Status column width
+    requests.append({
+        "updateDimensionProperties": {
+            "range": {"sheetId": worksheet.id, "dimension": "COLUMNS", "startIndex": col_idx, "endIndex": col_idx + 1},
+            "properties": {"pixelSize": 130},
+            "fields": "pixelSize",
+        }
+    })
+
+    # Borders
+    border_style = {"style": "SOLID", "color": {"red": 0.7, "green": 0.7, "blue": 0.7}}
+    requests.append({
+        "updateBorders": {
+            "range": {
+                "sheetId": worksheet.id,
+                "startRowIndex": 1,
+                "endRowIndex": total_rows,
+                "startColumnIndex": 0,
+                "endColumnIndex": total_cols,
+            },
+            "top": border_style,
+            "bottom": border_style,
+            "left": border_style,
+            "right": border_style,
+            "innerHorizontal": border_style,
+            "innerVertical": border_style,
+        }
+    })
+
+    worksheet.spreadsheet.batch_update({"requests": requests})
+    return worksheet
+
 
 
 
