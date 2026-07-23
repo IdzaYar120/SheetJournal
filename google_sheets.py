@@ -73,6 +73,15 @@ def create_academic_journal(
         # Also make it accessible via link for convenience.
         spreadsheet.share("", perm_type="anyone", role="reader")
 
+    # Share with each teacher
+    teacher_emails = set(d.get("teacher_email") for d in disciplines if d.get("teacher_email"))
+    for t_email in teacher_emails:
+        if t_email != share_email:
+            try:
+                spreadsheet.share(t_email, perm_type="user", role="writer")
+            except Exception as exc:
+                logger.warning("Could not share spreadsheet with teacher %s: %s", t_email, exc)
+
     # ---------------------------------------------------------------
     # ---------------------------------------------------------------
     # Create one worksheet (tab) per discipline / course project.
@@ -84,6 +93,7 @@ def create_academic_journal(
         disc_name = disc["name"]
         class_count = disc.get("class_count") or 0
         control_type = disc.get("control_type", "credit")
+        teacher_email = disc.get("teacher_email")
 
         # Determine tab title: course projects get КП prefix
         if control_type == "course_project":
@@ -100,14 +110,14 @@ def create_academic_journal(
             worksheet = spreadsheet.add_worksheet(title=tab_title, rows=1, cols=1)
 
         if control_type == "course_project":
-            _populate_course_project_sheet(worksheet, students, disc_name, group_name)
+            _populate_course_project_sheet(worksheet, students, disc_name, group_name, teacher_email)
         else:
-            _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name, control_type)
+            _populate_discipline_sheet(worksheet, students, disc_name, class_count, group_name, control_type, teacher_email)
 
     # If no disciplines were provided, set up a generic sheet.
     if not created_first:
         existing_sheet.update_title(group_name)
-        _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name, "credit")
+        _populate_discipline_sheet(existing_sheet, students, group_name, 0, group_name, "credit", None)
 
     # Create milestone sheets РК1 and РК2, semester sheet, and general summary report sheet
     if students:
@@ -137,6 +147,7 @@ def _populate_discipline_sheet(
     class_count: int,
     group_name: str,
     control_type: str = "credit",
+    teacher_email: str | None = None,
 ) -> None:
     """
     Fill and format a single discipline worksheet.
@@ -165,6 +176,8 @@ def _populate_discipline_sheet(
     label = f"{group_name} — {discipline_name}"
     if is_exam:
         label += " (Екзамен)"
+    if teacher_email:
+        label += f" (Викладач: {teacher_email})"
     row1 = [label] + [""] * (total_cols - 1)
     rows_data.append(row1)
 
@@ -792,6 +805,7 @@ def _populate_course_project_sheet(
     students: list[str],
     discipline_name: str,
     group_name: str,
+    teacher_email: str | None = None,
 ) -> None:
     """
     Fill and format a course project (КП/КР) worksheet.
@@ -811,6 +825,8 @@ def _populate_course_project_sheet(
 
     # Row 1: Title
     title_text = f"{group_name} — Захист курсового проекту з дисципліни: {discipline_name}"
+    if teacher_email:
+        title_text += f" (Викладач: {teacher_email})"
     rows_data.append([title_text] + [""] * (total_cols - 1))
 
     # Row 2: Headers

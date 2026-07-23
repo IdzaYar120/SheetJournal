@@ -61,6 +61,9 @@
             </div>
         </div>
 
+        <!-- Create Google Sheet Form wrapper starting here -->
+        <form action="{{ url_for('create_journal') }}" method="POST" id="createForm">
+
         <!-- Disciplines table -->
         <div class="bg-white/10 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl overflow-hidden">
             <div class="p-6 pb-4 border-b border-white/10">
@@ -77,6 +80,7 @@
                             <th class="px-6 py-3 font-medium">Назва дисципліни</th>
                             <th class="px-6 py-3 font-medium text-center">Контроль</th>
                             <th class="px-6 py-3 font-medium text-right">Кількість пар</th>
+                            <th class="px-6 py-3 font-medium text-left">Email викладача</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -111,6 +115,14 @@
                                 {% else %}
                                     <span class="text-slate-600">—</span>
                                 {% endif %}
+                            </td>
+                            <td class="px-6 py-4">
+                                <input type="email" name="teacher_email_{{ loop.index0 }}"
+                                       placeholder="teacher@example.com"
+                                       class="w-full max-w-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10
+                                              text-white placeholder-slate-500 text-xs
+                                              focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50
+                                              transition-all duration-200" />
                             </td>
                         </tr>
                         {% endfor %}
@@ -167,8 +179,7 @@
                 Буде створено таблицю з окремою вкладкою для кожної дисципліни, зведеними вкладками рубіжного контролю (РК1 та РК2), підсумковою відомістю («Семестр»), а також підсумковою вкладкою «Загальна звітність» (середній бал студента та підсумковий результат).
             </p>
 
-            <form action="{{ url_for('create_journal') }}" method="POST" id="createForm">
-                <!-- Email input -->
+            <!-- Email input -->
                 <div class="mb-4">
                     <label for="email" class="block text-sm font-medium text-slate-300 mb-2">
                         Google email для доступу

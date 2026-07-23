@@ -264,6 +264,11 @@ def create_journal():
     share_email = request.form.get("email", "").strip() or None
     folder_id = request.form.get("folder_id", "").strip() or None
 
+    # Retrieve teacher emails from form inputs and assign to disciplines
+    for idx, d in enumerate(data["disciplines"]):
+        t_email = request.form.get(f"teacher_email_{idx}", "").strip() or None
+        d["teacher_email"] = t_email
+
     try:
         result = create_academic_journal(
             group_name=data["group_name"],
