@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Академічний журнал — Завантаження файлу</title>
+    <title>Академічний журнал — Імпорт даних</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
                 </div>
                 <h1 class="text-2xl font-bold text-white">Академічний журнал</h1>
                 <p class="text-slate-400 mt-2 text-sm">
-                    Завантажте файл Excel або CSV із даними групи для створення журналу
+                    Завантажте файл з вашого комп'ютера або вкажіть посилання на Google Doc з даними групи
                 </p>
             </div>
 
@@ -46,49 +46,96 @@
                 {% endif %}
             {% endwith %}
 
-            <!-- Upload form -->
-            <form action="{{ url_for('handle_upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
-                <!-- Drop zone -->
-                <label for="fileInput"
-                       id="dropZone"
-                       class="relative flex flex-col items-center justify-center w-full h-48
-                              border-2 border-dashed border-white/20 rounded-xl cursor-pointer
-                              hover:border-indigo-400/50 hover:bg-white/5
-                              transition-all duration-300 group">
-                    <div class="flex flex-col items-center justify-center pt-5 pb-6" id="dropContent">
-                        <svg class="w-10 h-10 mb-3 text-slate-500 group-hover:text-indigo-400 transition-colors"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                        </svg>
-                        <p class="mb-1 text-sm text-slate-400">
-                            <span class="font-semibold text-indigo-400">Натисніть для вибору</span> або перетягніть файл
-                        </p>
-                        <p class="text-xs text-slate-500">.xlsx, .xls, .csv</p>
-                    </div>
-                    <input id="fileInput" name="file" type="file" class="hidden"
-                           accept=".xlsx,.xls,.csv" />
-                </label>
-
-                <!-- Selected file name -->
-                <div id="fileName" class="hidden mt-3 px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/25
-                            text-indigo-300 text-sm flex items-center justify-between">
-                    <span id="fileNameText"></span>
-                    <button type="button" id="clearFile" class="ml-2 hover:text-white transition-colors">✕</button>
+            <!-- Service Account Info (Google Docs prerequisite) -->
+            {% if service_email %}
+                <div class="mb-6 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300">
+                    <p class="font-semibold mb-1">🔑 Для імпорту з Google Docs:</p>
+                    <p class="mb-2">Поділіться вашим Google Документом (права читача/редактора) з сервісним акаунтом:</p>
+                    <code class="block p-2 bg-slate-900/60 rounded border border-white/10 select-all font-mono text-center text-[11px] text-white">
+                        {{ service_email }}
+                    </code>
                 </div>
+            {% endif %}
 
-                <!-- Submit button -->
-                <button type="submit"
-                        id="submitBtn"
-                        disabled
-                        class="mt-6 w-full py-3 px-4 rounded-xl font-semibold text-sm
-                               bg-indigo-600 text-white
-                               hover:bg-indigo-500 active:scale-[0.98]
-                               disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600
-                               transition-all duration-200 shadow-lg shadow-indigo-500/25">
-                    Завантажити та переглянути
+            <!-- Navigation Tabs (File vs Google Doc) -->
+            <div class="flex border-b border-white/15 mb-6 text-sm">
+                <button id="tabFileBtn" class="flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none">
+                    📁 Завантажити файл
                 </button>
-            </form>
+                <button id="tabGdocBtn" class="flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none">
+                    🌐 Імпорт з Google Docs
+                </button>
+            </div>
+
+            <!-- Form A: File Upload -->
+            <div id="sectionFile">
+                <form action="{{ url_for('handle_upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <!-- Drop zone -->
+                    <label for="fileInput"
+                           id="dropZone"
+                           class="relative flex flex-col items-center justify-center w-full h-48
+                                  border-2 border-dashed border-white/20 rounded-xl cursor-pointer
+                                  hover:border-indigo-400/50 hover:bg-white/5
+                                  transition-all duration-300 group">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6" id="dropContent">
+                            <svg class="w-10 h-10 mb-3 text-slate-500 group-hover:text-indigo-400 transition-colors"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <p class="mb-1 text-sm text-slate-400">
+                                <span class="font-semibold text-indigo-400">Натисніть для вибору</span> або перетягніть файл
+                            </p>
+                            <p class="text-xs text-slate-500">.xlsx, .xls, .csv, .docx</p>
+                        </div>
+                        <input id="fileInput" name="file" type="file" class="hidden"
+                               accept=".xlsx,.xls,.csv,.docx" />
+                    </label>
+
+                    <!-- Selected file name -->
+                    <div id="fileName" class="hidden mt-3 px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/25
+                                text-indigo-300 text-sm flex items-center justify-between">
+                        <span id="fileNameText"></span>
+                        <button type="button" id="clearFile" class="ml-2 hover:text-white transition-colors">✕</button>
+                    </div>
+
+                    <!-- Submit button -->
+                    <button type="submit"
+                            id="submitBtn"
+                            disabled
+                            class="mt-6 w-full py-3 px-4 rounded-xl font-semibold text-sm
+                                   bg-indigo-600 text-white
+                                   hover:bg-indigo-500 active:scale-[0.98]
+                                   disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600
+                                   transition-all duration-200 shadow-lg shadow-indigo-500/25">
+                        Завантажити та переглянути
+                    </button>
+                </form>
+            </div>
+
+            <!-- Form B: Google Doc Link -->
+            <div id="sectionGdoc" class="hidden">
+                <form action="{{ url_for('handle_gdoc_import') }}" method="POST" id="gdocForm">
+                    <div class="flex flex-col gap-2">
+                        <label for="doc_url" class="text-sm font-semibold text-slate-300">Посилання на Google Документ</label>
+                        <input type="url"
+                               id="doc_url"
+                               name="doc_url"
+                               placeholder="https://docs.google.com/document/d/..."
+                               required
+                               class="w-full px-4 py-3 rounded-xl bg-slate-900/60 border border-white/15 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm" />
+                    </div>
+
+                    <!-- Submit button -->
+                    <button type="submit"
+                            class="mt-6 w-full py-3 px-4 rounded-xl font-semibold text-sm
+                                   bg-indigo-600 text-white
+                                   hover:bg-indigo-500 active:scale-[0.98]
+                                   transition-all duration-200 shadow-lg shadow-indigo-500/25">
+                        Імпортувати з Google Docs
+                    </button>
+                </form>
+            </div>
         </div>
 
         <!-- Footer -->
@@ -104,6 +151,26 @@
         const fileText   = document.getElementById('fileNameText');
         const clearBtn   = document.getElementById('clearFile');
         const submitBtn  = document.getElementById('submitBtn');
+
+        const tabFileBtn   = document.getElementById('tabFileBtn');
+        const tabGdocBtn   = document.getElementById('tabGdocBtn');
+        const sectionFile  = document.getElementById('sectionFile');
+        const sectionGdoc  = document.getElementById('sectionGdoc');
+
+        // Tabs switching
+        tabFileBtn.addEventListener('click', () => {
+            tabFileBtn.className = "flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none";
+            tabGdocBtn.className = "flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none";
+            sectionFile.classList.remove('hidden');
+            sectionGdoc.classList.add('hidden');
+        });
+
+        tabGdocBtn.addEventListener('click', () => {
+            tabGdocBtn.className = "flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none";
+            tabFileBtn.className = "flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none";
+            sectionGdoc.classList.remove('hidden');
+            sectionFile.classList.add('hidden');
+        });
 
         function showFile(name) {
             fileText.textContent = name;
