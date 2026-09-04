@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Журнали створено</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-4 md:p-8">
+
+    <div class="max-w-2xl mx-auto space-y-6">
+        <div class="bg-white/10 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-8 text-center">
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-500/20 mb-6">
+                <svg class="w-10 h-10 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold text-white mb-2">
+                {% if results %}Створено {{ results | length }} журнал(ів){% else %}Журнали не створено{% endif %}
+            </h1>
+            {% if shared_with %}
+            <p class="text-slate-400 text-sm">Усі журнали поширено на <span class="text-indigo-300 font-medium">{{ shared_with }}</span></p>
+            {% endif %}
+        </div>
+
+        {% if results %}
+        <div class="bg-white/10 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 pb-4 border-b border-white/10">
+                <h2 class="text-lg font-semibold text-white">Успішно створені журнали</h2>
+            </div>
+            <ul class="divide-y divide-white/5">
+                {% for r in results %}
+                <li class="px-6 py-4 flex items-center justify-between gap-4">
+                    <div>
+                        <p class="text-white font-medium">{{ r.group }}</p>
+                        <p class="text-slate-500 text-xs">{{ r.title }}</p>
+                    </div>
+                    <a href="{{ r.spreadsheet_url }}" target="_blank" rel="noopener noreferrer"
+                       class="flex-shrink-0 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
+                        Відкрити
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if errors %}
+        <div class="bg-rose-500/10 border border-rose-500/20 rounded-2xl overflow-hidden">
+            <div class="p-6 pb-4 border-b border-rose-500/20">
+                <h2 class="text-lg font-semibold text-rose-300">Помилки</h2>
+            </div>
+            <ul class="divide-y divide-rose-500/10">
+                {% for e in errors %}
+                <li class="px-6 py-4">
+                    <p class="text-white font-medium">{{ e.group }}</p>
+                    <p class="text-rose-300 text-xs mt-1">{{ e.error }}</p>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <a href="{{ url_for('upload_page') }}"
+           class="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-sm
+                  bg-white/10 text-slate-300 hover:bg-white/15 active:scale-[0.98]
+                  transition-all duration-200 border border-white/10">
+            Повернутись на головну
+        </a>
+    </div>
+</body>
+</html>

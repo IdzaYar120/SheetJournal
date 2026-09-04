@@ -9,3 +9,5 @@ credentials.json
 *.xls
 *.csv
 !sample_data.csv
+*.doc
+data/

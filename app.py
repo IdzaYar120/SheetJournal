@@ -4,11 +4,14 @@ Phase 1: File upload, parsing, and preview (Excel, CSV, Word, Google Doc).
 Phase 2: Google Sheets integration — create and share journals.
 """
 
+import csv
+import datetime
 import json
 import logging
 import os
 import re
 import tempfile
+import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +19,7 @@ from flask import Flask, flash, redirect, render_template, request, session, url
 from werkzeug.utils import secure_filename
 
 from google_sheets import create_academic_journal, CREDENTIALS_PATH
+from doc_import import match_groups_to_rnp, parse_rnp, parse_student_roster
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,11 @@ app = Flask(__name__)
 app.secret_key = os.urandom(32)
 
 ALLOWED_EXTENSIONS = {"xlsx", "xls", "csv", "docx"}
+ALLOWED_ROSTER_RNP_EXTENSIONS = {"doc", "docx"}
+
+DATA_DIR = Path(__file__).parent / "data"
+ROSTER_PATH = DATA_DIR / "roster.json"
+BATCH_STATE_DIR = DATA_DIR / "batch_state"
 
 
 def allowed_file(filename: str) -> bool:
@@ -181,16 +190,35 @@ def parse_docx_file(filepath: str) -> dict:
         return {"error": f"Помилка при зчитуванні Word-файлу: {exc}"}
 
 
+def _read_csv_ragged(filepath: str, header_row: int | None) -> pd.DataFrame:
+    """Read a CSV into a DataFrame, tolerating rows with a different number of
+    columns than the rest (pandas' C parser raises on this — real exports often
+    have a short "Назва групи" row above a wider student table)."""
+    with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.reader(f))
+
+    max_cols = max((len(row) for row in rows), default=0)
+    padded = [row + [""] * (max_cols - len(row)) for row in rows]
+
+    if header_row is None:
+        df = pd.DataFrame(padded, dtype=str)
+    else:
+        columns = padded[header_row] if header_row < len(padded) else list(range(max_cols))
+        df = pd.DataFrame(padded[header_row + 1:], columns=columns, dtype=str)
+
+    return df.replace("", pd.NA)
+
+
 def parse_uploaded_file(filepath: str) -> dict:
     """Parse an uploaded Excel, CSV, or Word file."""
     ext = Path(filepath).suffix.lower()
-    
+
     if ext == ".docx":
         return parse_docx_file(filepath)
 
     try:
         if ext == ".csv":
-            raw_df = pd.read_csv(filepath, header=None, dtype=str)
+            raw_df = _read_csv_ragged(filepath, header_row=None)
         else:
             raw_df = pd.read_excel(filepath, header=None, dtype=str, engine="openpyxl")
 
@@ -231,7 +259,7 @@ def parse_uploaded_file(filepath: str) -> dict:
             header_row_idx = 1 if raw_df.shape[0] > 1 else 0
 
         if ext == ".csv":
-            df = pd.read_csv(filepath, header=header_row_idx, dtype=str)
+            df = _read_csv_ragged(filepath, header_row=header_row_idx)
         else:
             df = pd.read_excel(filepath, header=header_row_idx, dtype=str, engine="openpyxl")
 
@@ -304,6 +332,75 @@ def parse_uploaded_file(filepath: str) -> dict:
 
 
 # ==========================================================================
+# Roster & batch-state persistence (Список студентів + РНП flow)
+# ==========================================================================
+
+def load_roster() -> dict:
+    """Load the persisted student roster ({group_name: [student, ...]})."""
+    if not ROSTER_PATH.exists():
+        return {}
+    try:
+        with open(ROSTER_PATH, "r", encoding="utf-8") as f:
+            return json.load(f).get("groups", {})
+    except Exception:
+        return {}
+
+
+def save_roster(groups: dict) -> None:
+    """Persist the student roster to disk so it survives across sessions/restarts."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(ROSTER_PATH, "w", encoding="utf-8") as f:
+        json.dump(
+            {"updated_at": datetime.datetime.now().isoformat(), "groups": groups},
+            f, ensure_ascii=False, indent=2,
+        )
+
+
+def save_batch_state(batch_id: str, match: dict) -> None:
+    """Persist a matched-groups batch to disk (kept out of the session cookie, which
+    is too small for many groups/students/disciplines)."""
+    BATCH_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(BATCH_STATE_DIR / f"{batch_id}.json", "w", encoding="utf-8") as f:
+        json.dump(match, f, ensure_ascii=False)
+
+
+def load_batch_state(batch_id: str) -> dict | None:
+    path = BATCH_STATE_DIR / f"{batch_id}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def delete_batch_state(batch_id: str) -> None:
+    path = BATCH_STATE_DIR / f"{batch_id}.json"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _save_upload_to_tmp(file_storage) -> str:
+    """Save a Flask FileStorage to a fresh temp dir and return the filepath."""
+    tmp_dir = tempfile.mkdtemp()
+    filepath = os.path.join(tmp_dir, secure_filename(file_storage.filename))
+    file_storage.save(filepath)
+    return filepath
+
+
+def _cleanup_tmp(filepath: str) -> None:
+    try:
+        tmp_dir = os.path.dirname(filepath)
+        os.remove(filepath)
+        os.rmdir(tmp_dir)
+    except OSError:
+        pass
+
+
+# ==========================================================================
 # Routes
 # ==========================================================================
 
@@ -318,7 +415,17 @@ def upload_page():
                 service_email = data.get("client_email", "")
         except Exception:
             pass
-    return render_template("upload.html", service_email=service_email)
+
+    roster = load_roster()
+    roster_info = None
+    if roster:
+        roster_info = {
+            "group_count": len(roster),
+            "student_count": sum(len(v) for v in roster.values()),
+            "groups": sorted(roster.keys()),
+        }
+
+    return render_template("upload.html", service_email=service_email, roster_info=roster_info)
 
 
 @app.route("/upload", methods=["POST"])
@@ -481,6 +588,132 @@ def create_journal():
         title=result["title"],
         spreadsheet_url=result["spreadsheet_url"],
         tab_count=len(data["disciplines"]) or 1,
+        shared_with=share_email,
+    )
+
+
+@app.route("/upload-roster", methods=["POST"])
+def upload_roster():
+    """Receive the multi-group student roster (.doc/.docx) and persist it."""
+    file = request.files.get("roster_file")
+    if not file or file.filename == "":
+        flash("Файл списку студентів не обрано.", "error")
+        return redirect(url_for("upload_page"))
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_ROSTER_RNP_EXTENSIONS:
+        flash("Список студентів має бути у форматі .doc або .docx.", "error")
+        return redirect(url_for("upload_page"))
+
+    filepath = _save_upload_to_tmp(file)
+    try:
+        result = parse_student_roster(filepath)
+    finally:
+        _cleanup_tmp(filepath)
+
+    if result["error"]:
+        flash(result["error"], "error")
+        return redirect(url_for("upload_page"))
+
+    save_roster(result["groups"])
+    total_students = sum(len(v) for v in result["groups"].values())
+    flash(
+        f"Список студентів збережено: {len(result['groups'])} груп, {total_students} студентів.",
+        "success",
+    )
+    return redirect(url_for("upload_page"))
+
+
+@app.route("/upload-rnp", methods=["POST"])
+def upload_rnp():
+    """Receive an RNP (.doc/.docx) for one specialty, match it against the stored
+    roster, and show a batch preview of every group it covers."""
+    roster = load_roster()
+    if not roster:
+        flash("Спершу завантажте список студентів.", "error")
+        return redirect(url_for("upload_page"))
+
+    file = request.files.get("rnp_file")
+    if not file or file.filename == "":
+        flash("Файл РНП не обрано.", "error")
+        return redirect(url_for("upload_page"))
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_ROSTER_RNP_EXTENSIONS:
+        flash("РНП має бути у форматі .doc або .docx.", "error")
+        return redirect(url_for("upload_page"))
+
+    filepath = _save_upload_to_tmp(file)
+    try:
+        rnp = parse_rnp(filepath)
+    finally:
+        _cleanup_tmp(filepath)
+
+    if rnp["error"]:
+        flash(rnp["error"], "error")
+        return redirect(url_for("upload_page"))
+
+    match = match_groups_to_rnp(roster, rnp)
+    if not match["matched"]:
+        flash(
+            f"Жодна група зі збереженого списку не належить до спеціальності "
+            f"«{rnp['specialty_code']}» з цього РНП.",
+            "error",
+        )
+        return redirect(url_for("upload_page"))
+
+    batch_id = uuid.uuid4().hex
+    save_batch_state(batch_id, match)
+    session["batch_id"] = batch_id
+
+    return render_template(
+        "preview_batch.html",
+        specialty=rnp["specialty_code"],
+        matched=match["matched"],
+        skipped=match["skipped"],
+    )
+
+
+@app.route("/create-journals-batch", methods=["POST"])
+def create_journals_batch():
+    """Create one Google Sheets journal per matched group from the batch preview."""
+    batch_id = session.get("batch_id")
+    match = load_batch_state(batch_id) if batch_id else None
+    if not match:
+        flash("Дані пакету не знайдено або застаріли. Завантажте РНП ще раз.", "error")
+        return redirect(url_for("upload_page"))
+
+    share_email = request.form.get("email", "").strip() or None
+    folder_id = request.form.get("folder_id", "").strip() or None
+
+    results = []
+    errors = []
+    for group_name, info in match["matched"].items():
+        disciplines = info["disciplines"]
+        for idx, d in enumerate(disciplines):
+            field = f"teacher_email_{group_name}_{idx}"
+            d["teacher_email"] = request.form.get(field, "").strip() or None
+
+        try:
+            result = create_academic_journal(
+                group_name=group_name,
+                students=info["students"],
+                disciplines=disciplines,
+                share_email=share_email,
+                folder_id=folder_id,
+            )
+            results.append({"group": group_name, **result})
+        except Exception as exc:
+            logger.exception("Failed to create journal for group %s", group_name)
+            errors.append({"group": group_name, "error": str(exc)})
+
+    delete_batch_state(batch_id)
+    session.pop("batch_id", None)
+
+    return render_template(
+        "success_batch.html",
+        results=results,
+        errors=errors,
         shared_with=share_email,
     )
 

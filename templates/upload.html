@@ -57,13 +57,16 @@
                 </div>
             {% endif %}
 
-            <!-- Navigation Tabs (File vs Google Doc) -->
+            <!-- Navigation Tabs -->
             <div class="flex border-b border-white/15 mb-6 text-sm">
                 <button id="tabFileBtn" class="flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none">
-                    📁 Завантажити файл
+                    📁 Файл
                 </button>
                 <button id="tabGdocBtn" class="flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none">
-                    🌐 Імпорт з Google Docs
+                    🌐 Google Docs
+                </button>
+                <button id="tabRnpBtn" class="flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none">
+                    🎓 Список + РНП
                 </button>
             </div>
 
@@ -136,6 +139,61 @@
                     </button>
                 </form>
             </div>
+
+            <!-- Form C: Roster + RNP (multi-group batch) -->
+            <div id="sectionRnp" class="hidden space-y-6">
+
+                <!-- Roster status -->
+                <div class="p-4 rounded-xl {{ 'bg-emerald-500/10 border border-emerald-500/20' if roster_info else 'bg-white/5 border border-white/10' }}">
+                    {% if roster_info %}
+                        <p class="text-sm text-emerald-300 font-semibold mb-1">✓ Список студентів збережено</p>
+                        <p class="text-xs text-slate-400">
+                            {{ roster_info.group_count }} груп, {{ roster_info.student_count }} студентів:
+                            {{ roster_info.groups | join(", ") }}
+                        </p>
+                    {% else %}
+                        <p class="text-sm text-slate-400">Список студентів ще не завантажено.</p>
+                    {% endif %}
+                </div>
+
+                <!-- Step 1: Roster upload -->
+                <form action="{{ url_for('upload_roster') }}" method="POST" enctype="multipart/form-data" class="space-y-2">
+                    <label class="block text-sm font-semibold text-slate-300">
+                        1. Список студентів (.doc/.docx, усі групи й курси)
+                    </label>
+                    <div class="flex gap-2">
+                        <input type="file" name="roster_file" accept=".doc,.docx" required
+                               class="flex-1 text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg
+                                      file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white
+                                      hover:file:bg-indigo-500 file:cursor-pointer cursor-pointer" />
+                        <button type="submit"
+                                class="px-4 py-2 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/15 transition-colors">
+                            Зберегти список
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Step 2: RNP upload -->
+                <form action="{{ url_for('upload_rnp') }}" method="POST" enctype="multipart/form-data" class="space-y-2">
+                    <label class="block text-sm font-semibold text-slate-300">
+                        2. РНП конкретної спеціальності (.doc/.docx)
+                    </label>
+                    <p class="text-xs text-slate-500">
+                        Створить журнали одразу для всіх груп зі списку, чия спеціальність збігається з РНП,
+                        для семестру, що триває зараз.
+                    </p>
+                    <div class="flex gap-2">
+                        <input type="file" name="rnp_file" accept=".doc,.docx" required
+                               class="flex-1 text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg
+                                      file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white
+                                      hover:file:bg-emerald-500 file:cursor-pointer cursor-pointer" />
+                        <button type="submit"
+                                class="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
+                            Розпізнати
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
 
         <!-- Footer -->
@@ -154,23 +212,25 @@
 
         const tabFileBtn   = document.getElementById('tabFileBtn');
         const tabGdocBtn   = document.getElementById('tabGdocBtn');
+        const tabRnpBtn    = document.getElementById('tabRnpBtn');
         const sectionFile  = document.getElementById('sectionFile');
         const sectionGdoc  = document.getElementById('sectionGdoc');
+        const sectionRnp   = document.getElementById('sectionRnp');
+
+        const ACTIVE_TAB   = "flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none";
+        const INACTIVE_TAB = "flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none";
+
+        function showTab(activeBtn, activeSection) {
+            [tabFileBtn, tabGdocBtn, tabRnpBtn].forEach(btn => btn.className = INACTIVE_TAB);
+            [sectionFile, sectionGdoc, sectionRnp].forEach(sec => sec.classList.add('hidden'));
+            activeBtn.className = ACTIVE_TAB;
+            activeSection.classList.remove('hidden');
+        }
 
         // Tabs switching
-        tabFileBtn.addEventListener('click', () => {
-            tabFileBtn.className = "flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none";
-            tabGdocBtn.className = "flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none";
-            sectionFile.classList.remove('hidden');
-            sectionGdoc.classList.add('hidden');
-        });
-
-        tabGdocBtn.addEventListener('click', () => {
-            tabGdocBtn.className = "flex-1 pb-3 text-white font-semibold border-b-2 border-indigo-500 focus:outline-none";
-            tabFileBtn.className = "flex-1 pb-3 text-slate-400 font-semibold border-b-2 border-transparent hover:text-white transition-colors focus:outline-none";
-            sectionGdoc.classList.remove('hidden');
-            sectionFile.classList.add('hidden');
-        });
+        tabFileBtn.addEventListener('click', () => showTab(tabFileBtn, sectionFile));
+        tabGdocBtn.addEventListener('click', () => showTab(tabGdocBtn, sectionGdoc));
+        tabRnpBtn.addEventListener('click', () => showTab(tabRnpBtn, sectionRnp));
 
         function showFile(name) {
             fileText.textContent = name;

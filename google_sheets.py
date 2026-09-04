@@ -60,11 +60,19 @@ def get_short_name(name: str) -> str:
     return acronym[:5]
 
 
+def get_first_v_tab(disciplines: list[dict]) -> str:
+    """Name of the first В_* report tab, the one other report tabs link names from."""
+    for d in disciplines:
+        if d.get("control_type") != "course_project":
+            return f"В_{get_short_name(d['name'])}"
+    return f"В_{get_short_name(disciplines[0]['name'])}_КР"
+
+
 def get_sk_cols_for_discipline(d: dict, disciplines: list[dict]) -> dict:
     """Determine the column letters for a discipline in the СК worksheet."""
     col = 3
     for x in disciplines:
-        if x["name"] == d["name"]:
+        if x is d:
             if x.get("control_type") == "course_project":
                 return {
                     "def_points": _col_letter(col),
@@ -851,7 +859,7 @@ def _create_v_report_sheet(
     rows_data.append(["Університет економіки і підприємництва"] + [""] * 10)
     rows_data.append([""] * 11)
     
-    first_v_tab = f"В_{get_short_name(disciplines[0]['name'])}"
+    first_v_tab = get_first_v_tab(disciplines)
     rows_data.append(["2025 / 2026 навчальний рік", "", "", "", "", "", "", "Група", f"='{first_v_tab}'!I3" if first_pc_tab_name and title != first_v_tab else group_name, "", ""])
     rows_data.append(["", "", "", "", "", "", "", "Курс", f"='{first_v_tab}'!I4" if first_pc_tab_name and title != first_v_tab else "I", "", ""])
     rows_data.append(["Заліково-екзаменаційна відомість № ", "", "", "", "", "", "", "", "", "", ""])
@@ -883,7 +891,7 @@ def _create_v_report_sheet(
         row_num = 14 + idx
         sk_row = 3 + idx
         
-        first_report_sheet = f"В_{get_short_name(disciplines[0]['name'])}"
+        first_report_sheet = get_first_v_tab(disciplines)
         if title == first_report_sheet:
             name_formula = (
                 f'=IFERROR(CONCATENATE(LEFT(\'СК\'!B{sk_row},(FIND(" ",\'СК\'!B{sk_row})-1))," ",'
@@ -1055,7 +1063,7 @@ def _create_consolidated_dashboard(
     rows_data.append(["", "складання заліків та екзаменів сесії", "", "", "", "", "", ""] + [""] * (total_cols - 8))
     rows_data.append(["", "2025 / 2026 навчальний рік", "", "", "", "", "", ""] + [""] * (total_cols - 8))
     
-    first_report_sheet = f"В_{get_short_name(disciplines[0]['name'])}"
+    first_report_sheet = get_first_v_tab(disciplines)
     rows_data.append(["", f"='{first_report_sheet}'!A8", "", "", "", "", "група", "", "", "", "", "", group_name] + [""] * (total_cols - 13))
     rows_data.append([""] * total_cols)
     
