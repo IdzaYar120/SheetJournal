@@ -29,30 +29,43 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Крок 3. Налаштування ключів Google Sheets API (`credentials.json`)
-Сервіс сам розпізнає, який тип файлу `credentials.json` ви поклали, і працює з будь-яким із двох варіантів:
+### Крок 3. Налаштування авторизації в Google
 
-#### Варіант А — Сервісний акаунт (не інтерактивний, але може бути заблокований політикою)
+Сервіс підтримує три способи авторизації і сам автоматично обирає, який використати (перевіряє їх саме в цьому порядку). **Рекомендований — Варіант А**, він найпростіший і не потребує жодного налаштування в Cloud Console (окрім увімкнення 2 API).
+
+#### Варіант А (рекомендовано) — Google Cloud CLI (`gcloud`)
+Найпростіший спосіб: жодного OAuth consent screen, жодних Test users, жодних попереджень "unverified app" — бо `gcloud` вже верифікований самим Google.
+
+1. Встановіть [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (звичайний інсталятор для Windows).
+2. Відкрийте новий термінал (PowerShell) і виконайте:
+   ```powershell
+   gcloud auth login
+   gcloud services enable sheets.googleapis.com drive.googleapis.com
+   gcloud auth application-default login --scopes="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive"
+   ```
+3. Кожна команда відкриє браузер зі стандартним вікном входу Google (без попереджень) — увійдіть тим акаунтом, де мають з'являтися створені таблиці.
+4. Готово — `credentials.json` взагалі не потрібен. Просто запускайте `python app.py`.
+
+> Якщо `gcloud services enable` попросить обрати або створити проект — виконайте спочатку `gcloud projects list` та `gcloud config set project ВАШ_PROJECT_ID`, або створіть новий: `gcloud projects create` (Cloud CLI підкаже, якщо потрібна прив'язка білінгу — для Sheets/Drive API білінг не обов'язковий).
+
+#### Варіант Б — Сервісний акаунт (не інтерактивний, але часто заблокований політикою Google)
 1. Перейдіть до [Google Cloud Console](https://console.cloud.google.com/).
-2. Створіть новий проект (або виберіть існуючий).
-3. Увімкніть **Google Sheets API** та **Google Drive API** для проекту.
-4. Перейдіть у розділ **IAM & Admin** → **Service Accounts** → **Create Service Account**.
-5. Створіть сервісний акаунт, перейдіть на вкладку **Keys** (Ключі), натисніть **Add Key** → **Create new key** у форматі **JSON**.
-6. Завантажений JSON-файл перейменуйте в **`credentials.json`** та покладіть у кореневу папку проекту `exel_fill/` (поруч із файлом `google_sheets.py`).
+2. Увімкніть **Google Sheets API** та **Google Drive API** для проекту.
+3. **IAM & Admin** → **Service Accounts** → **Create Service Account**.
+4. Вкладка **Keys** → **Add Key** → **Create new key** → **JSON**.
+5. Файл перейменуйте на `credentials.json`, покладіть у корінь проекту.
 
-> ⚠️ **З 2024 року Google за замовчуванням блокує створення ключів сервісних акаунтів** для нових проектів («Service account key creation is disabled», `iam.disableServiceAccountKeyCreation`) — це стосується навіть особистих (не корпоративних) проєктів, і звичайний власник проєкту не може це вимкнути. Якщо ви бачите цю помилку на кроці 5 — використовуйте Варіант Б нижче.
+> ⚠️ З 2024 року Google часто блокує створення ключів сервісних акаунтів навіть для особистих проєктів («Service account key creation is disabled», `iam.disableServiceAccountKeyCreation`), і звичайний власник проєкту це не вимикає. Якщо бачите цю помилку — використовуйте Варіант А або В.
 
-#### Варіант Б — OAuth Client ID (Desktop app) — працює завжди, потребує одноразового входу в браузері
-1. Кроки 1-3 ті самі, що й вище (проект + увімкнені Sheets/Drive API).
-2. Перейдіть у **APIs & Services** → **OAuth consent screen** → налаштуйте (тип User Type: **External**; додайте себе в **Test users**, якщо буде запропоновано; для решти полів достатньо назви застосунку та вашого email).
-3. Перейдіть у **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**.
-4. Тип застосунку (**Application type**): **Desktop app**. Дайте назву → **Create**.
-5. Завантажений JSON-файл перейменуйте в **`credentials.json`** та покладіть у кореневу папку проекту.
-6. При першому запуску сервісу (створення журналу або імпорт Google Doc) автоматично відкриється браузер із запитом увійти й надати доступ — увійдіть тим Google-акаунтом, на якому мають з'являтися створені таблиці. Токен доступу збережеться у файлі `authorized_user.json` (теж у кореневій папці) і повторний вхід більше не знадобиться, доки токен дійсний.
+#### Варіант В — OAuth Client ID (Desktop app)
+Використовуйте, якщо з якоїсь причини не підходять А чи Б. Потребує ручного налаштування OAuth consent screen (тип **External**, себе — у **Test users**), інакше вхід завершиться помилкою **403 access_denied**.
+1. Кроки 1-2 ті самі, що й у Варіанті Б.
+2. **APIs & Services** → **OAuth consent screen** → User Type **External** → додайте свій email у **Test users**.
+3. **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID** → тип **Desktop app**.
+4. Завантажений JSON перейменуйте на `credentials.json`, покладіть у корінь проекту.
+5. При першому запуску відкриється браузер для входу; токен збережеться в `authorized_user.json`.
 
-При цьому варіанті таблиці створюються прямо у Диску того акаунту, яким ви увійшли — розшарювати їх додатково на себе не потрібно (поле "Google email для доступу" на сторінці перегляду можна лишити порожнім, або вказати email колеги, щоб додати й його).
-
-Обидва файли — `credentials.json` і `authorized_user.json` — містять чутливі дані і ніколи не потрапляють у git (додані до `.gitignore`).
+Файли `credentials.json` і `authorized_user.json` (Варіанти Б/В) містять чутливі дані і ніколи не потрапляють у git (у `.gitignore`). При Варіанті А жодних локальних секретних файлів у проєкті немає — токен `gcloud` зберігається окремо в профілі користувача Windows.
 
 ---
 

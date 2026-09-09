@@ -1,11 +1,14 @@
 """
 Google Sheets integration for Academic Journal creation aligned with Reference.
 
-Creates and formats Google Spreadsheets using either a Service Account key or
-an OAuth "Desktop app" Client ID — whichever is found at CREDENTIALS_PATH.
-The OAuth path exists because Google now disables service-account key
-creation by default on new Cloud projects; an OAuth Client ID is not a
-service-account key and isn't affected by that restriction.
+Authenticates, in order of preference:
+  1. Application Default Credentials from `gcloud auth application-default
+     login` — uses Google's own pre-verified CLI OAuth client, so there is no
+     consent-screen setup, no test-user allowlist, and no "unverified app"
+     warning. This is the recommended, low-friction path.
+  2. Whatever is found at CREDENTIALS_PATH — a service-account key, or an
+     OAuth "Desktop app" Client ID (needed because Google now disables
+     service-account key creation by default on new Cloud projects).
 """
 
 import json
@@ -44,20 +47,36 @@ def _credentials_kind() -> str:
     return "unknown"
 
 
+def _try_application_default_credentials():
+    """Try `gcloud`-issued Application Default Credentials, if present."""
+    try:
+        import google.auth
+        creds, _project = google.auth.default(scopes=OAUTH_SCOPES)
+        return creds
+    except Exception:
+        return None
+
+
 def _get_client() -> gspread.Client:
     """Authenticate and return a gspread client.
 
-    Supports two credentials.json formats:
-      - A service-account key — non-interactive, no login prompt.
-      - An OAuth Client ID (Desktop app) — opens a one-time browser login and
-        caches the resulting token in AUTHORIZED_USER_PATH for reuse.
+    Tries, in order:
+      - Application Default Credentials (from `gcloud auth application-default
+        login`) — no credentials.json needed at all.
+      - A service-account key at CREDENTIALS_PATH — non-interactive.
+      - An OAuth Client ID (Desktop app) at CREDENTIALS_PATH — opens a
+        one-time browser login and caches the token in AUTHORIZED_USER_PATH.
     """
+    adc = _try_application_default_credentials()
+    if adc is not None:
+        return gspread.authorize(adc)
+
     kind = _credentials_kind()
     if kind == "missing":
         raise FileNotFoundError(
-            f"Файл credentials.json не знайдено за шляхом: {CREDENTIALS_PATH}\n"
-            "Завантажте ключ сервісного акаунту, або OAuth Client ID (Desktop app), "
-            "з Google Cloud Console."
+            "Немає жодного способу авторизації в Google. Або виконайте "
+            "'gcloud auth application-default login --scopes=...' (див. INSTRUCTION.md), "
+            f"або покладіть credentials.json (ключ сервісного акаунту чи OAuth Client ID) за шляхом: {CREDENTIALS_PATH}"
         )
     if kind == "service_account":
         return gspread.service_account(filename=str(CREDENTIALS_PATH))
