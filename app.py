@@ -1,7 +1,7 @@
 """
-Flask application for automated Google Sheets Academic Journal creation.
+Flask application for automated Academic Journal creation.
 Phase 1: File upload, parsing, and preview (Excel, CSV, Word, Google Doc).
-Phase 2: Google Sheets integration — create and share journals.
+Phase 2: Generate a ready-to-use .xlsx journal — no Google API required.
 """
 
 import csv
@@ -10,12 +10,14 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, flash, redirect, render_template, request, send_file, session, url_for
 from werkzeug.utils import secure_filename
 
 from google_sheets import create_academic_journal, get_drive_credentials, get_service_account_email
@@ -32,6 +34,7 @@ ALLOWED_ROSTER_RNP_EXTENSIONS = {"doc", "docx"}
 DATA_DIR = Path(__file__).parent / "data"
 ROSTER_PATH = DATA_DIR / "roster.json"
 BATCH_STATE_DIR = DATA_DIR / "batch_state"
+DOWNLOADS_DIR = DATA_DIR / "downloads"
 
 
 def allowed_file(filename: str) -> bool:
@@ -400,6 +403,17 @@ def _cleanup_tmp(filepath: str) -> None:
         pass
 
 
+def _new_download(file_path: str) -> str:
+    """Move a generated file into a token-addressed downloads folder and
+    return the token to build a /download/<token> link from."""
+    token = uuid.uuid4().hex
+    dest_dir = DOWNLOADS_DIR / token
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / Path(file_path).name
+    shutil.move(file_path, dest_path)
+    return token
+
+
 # ==========================================================================
 # Routes
 # ==========================================================================
@@ -534,15 +548,13 @@ def handle_gdoc_import():
 
 @app.route("/create-journal", methods=["POST"])
 def create_journal():
-    """Create a Google Sheets journal from previously parsed data."""
+    """Generate the .xlsx journal from previously parsed data and offer it for download."""
     raw = session.get("parsed_data")
     if not raw:
         flash("Дані не знайдено. Будь ласка, завантажте файл або Google Doc спочатку.", "error")
         return redirect(url_for("upload_page"))
 
     data = json.loads(raw)
-    share_email = request.form.get("email", "").strip() or None
-    folder_id = request.form.get("folder_id", "").strip() or None
 
     for idx, d in enumerate(data["disciplines"]):
         t_email = request.form.get(f"teacher_email_{idx}", "").strip() or None
@@ -553,25 +565,20 @@ def create_journal():
             group_name=data["group_name"],
             students=data["students"],
             disciplines=data["disciplines"],
-            share_email=share_email,
-            folder_id=folder_id,
         )
-    except FileNotFoundError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("upload_page"))
     except Exception as exc:
-        logger.exception("Failed to create Google Sheets journal")
-        flash(f"Помилка при створенні Google Sheets: {exc}", "error")
+        logger.exception("Failed to generate the academic journal")
+        flash(f"Помилка при створенні журналу: {exc}", "error")
         return redirect(url_for("upload_page"))
 
+    token = _new_download(result["file_path"])
     session.pop("parsed_data", None)
 
     return render_template(
         "success.html",
         title=result["title"],
-        spreadsheet_url=result["spreadsheet_url"],
+        download_url=url_for("download_file", token=token),
         tab_count=len(data["disciplines"]) or 1,
-        shared_with=share_email,
     )
 
 
@@ -659,18 +666,17 @@ def upload_rnp():
 
 @app.route("/create-journals-batch", methods=["POST"])
 def create_journals_batch():
-    """Create one Google Sheets journal per matched group from the batch preview."""
+    """Generate one .xlsx journal per matched group and offer them as a single ZIP download."""
     batch_id = session.get("batch_id")
     match = load_batch_state(batch_id) if batch_id else None
     if not match:
         flash("Дані пакету не знайдено або застаріли. Завантажте РНП ще раз.", "error")
         return redirect(url_for("upload_page"))
 
-    share_email = request.form.get("email", "").strip() or None
-    folder_id = request.form.get("folder_id", "").strip() or None
-
     results = []
     errors = []
+    work_dir = Path(tempfile.mkdtemp())
+
     for group_name, info in match["matched"].items():
         disciplines = info["disciplines"]
         for idx, d in enumerate(disciplines):
@@ -682,13 +688,21 @@ def create_journals_batch():
                 group_name=group_name,
                 students=info["students"],
                 disciplines=disciplines,
-                share_email=share_email,
-                folder_id=folder_id,
+                output_dir=work_dir,
             )
             results.append({"group": group_name, **result})
         except Exception as exc:
             logger.exception("Failed to create journal for group %s", group_name)
             errors.append({"group": group_name, "error": str(exc)})
+
+    download_url = None
+    if results:
+        zip_path = work_dir / "Журнали.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for r in results:
+                zf.write(r["file_path"], arcname=r["filename"])
+        token = _new_download(str(zip_path))
+        download_url = url_for("download_file", token=token)
 
     delete_batch_state(batch_id)
     session.pop("batch_id", None)
@@ -697,8 +711,25 @@ def create_journals_batch():
         "success_batch.html",
         results=results,
         errors=errors,
-        shared_with=share_email,
+        download_url=download_url,
     )
+
+
+@app.route("/download/<token>")
+def download_file(token):
+    """Serve a previously generated journal (or ZIP of journals) for download."""
+    safe_token = re.sub(r"[^a-fA-F0-9]", "", token)
+    dest_dir = DOWNLOADS_DIR / safe_token
+    if not dest_dir.is_dir():
+        flash("Файл не знайдено або посилання застаріло.", "error")
+        return redirect(url_for("upload_page"))
+
+    files = list(dest_dir.iterdir())
+    if not files:
+        flash("Файл не знайдено.", "error")
+        return redirect(url_for("upload_page"))
+
+    return send_file(files[0], as_attachment=True, download_name=files[0].name)
 
 
 if __name__ == "__main__":

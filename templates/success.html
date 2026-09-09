@@ -31,7 +31,7 @@
 
             <h1 class="text-2xl font-bold text-white mb-2">Журнал успішно створено!</h1>
             <p class="text-slate-400 text-sm mb-6">
-                Google Sheets таблиця <span class="text-indigo-300 font-medium">«{{ title }}»</span> готова до використання.
+                Файл <span class="text-indigo-300 font-medium">«{{ title }}.xlsx»</span> готовий до завантаження.
             </p>
 
             <!-- Info cards -->
@@ -49,33 +49,31 @@
                     </div>
                 </div>
 
-                {% if shared_with %}
-                <div class="bg-white/5 rounded-xl px-4 py-3 flex items-center gap-3">
+                <div class="bg-white/5 rounded-xl px-4 py-3 flex items-start gap-3">
                     <div class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                         <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/>
+                                  d="M12 10v6m0 0l-3-3m3 3l3-3M3 15v3a2 2 0 002 2h14a2 2 0 002-2v-3"/>
                         </svg>
                     </div>
                     <div>
-                        <p class="text-xs text-slate-500">Поширено на</p>
-                        <p class="text-sm text-white font-medium">{{ shared_with }}</p>
+                        <p class="text-xs text-slate-500">Щоб отримати Google Таблицю</p>
+                        <p class="text-sm text-white font-medium">Завантажте файл і перетягніть його у Google Drive — він автоматично стане Google Таблицею.</p>
                     </div>
                 </div>
-                {% endif %}
             </div>
 
             <!-- Action buttons -->
             <div class="space-y-3">
-                <a href="{{ spreadsheet_url }}" target="_blank" rel="noopener noreferrer"
+                <a href="{{ download_url }}"
                    class="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-sm
                           bg-emerald-600 text-white hover:bg-emerald-500 active:scale-[0.98]
                           transition-all duration-200 shadow-lg shadow-emerald-500/25">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                              d="M12 10v6m0 0l-3-3m3 3l3-3M3 15v3a2 2 0 002 2h14a2 2 0 002-2v-3"/>
                     </svg>
-                    Відкрити в Google Sheets
+                    Завантажити .xlsx
                 </a>
 
                 <a href="{{ url_for('upload_page') }}"
@@ -92,7 +90,7 @@
         </div>
 
         <p class="text-center text-slate-600 text-xs mt-6">
-            Фаза 2 — Інтеграція з Google Sheets
+            Фаза 2 — Генерація журналу
         </p>
     </div>
 </body>

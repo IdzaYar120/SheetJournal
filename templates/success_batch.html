@@ -23,8 +23,18 @@
             <h1 class="text-2xl font-bold text-white mb-2">
                 {% if results %}Створено {{ results | length }} журнал(ів){% else %}Журнали не створено{% endif %}
             </h1>
-            {% if shared_with %}
-            <p class="text-slate-400 text-sm">Усі журнали поширено на <span class="text-indigo-300 font-medium">{{ shared_with }}</span></p>
+            {% if download_url %}
+            <p class="text-slate-400 text-sm mb-6">Усі файли зібрано в один ZIP-архів. Розпакуй і перетягни файли у Google Drive — вони автоматично стануть Google Таблицями.</p>
+            <a href="{{ download_url }}"
+               class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm
+                      bg-emerald-600 text-white hover:bg-emerald-500 active:scale-[0.98]
+                      transition-all duration-200 shadow-lg shadow-emerald-500/25">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 10v6m0 0l-3-3m3 3l3-3M3 15v3a2 2 0 002 2h14a2 2 0 002-2v-3"/>
+                </svg>
+                Завантажити всі журнали (ZIP)
+            </a>
             {% endif %}
         </div>
 
@@ -35,15 +45,9 @@
             </div>
             <ul class="divide-y divide-white/5">
                 {% for r in results %}
-                <li class="px-6 py-4 flex items-center justify-between gap-4">
-                    <div>
-                        <p class="text-white font-medium">{{ r.group }}</p>
-                        <p class="text-slate-500 text-xs">{{ r.title }}</p>
-                    </div>
-                    <a href="{{ r.spreadsheet_url }}" target="_blank" rel="noopener noreferrer"
-                       class="flex-shrink-0 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
-                        Відкрити
-                    </a>
+                <li class="px-6 py-4">
+                    <p class="text-white font-medium">{{ r.group }}</p>
+                    <p class="text-slate-500 text-xs">{{ r.filename }}</p>
                 </li>
                 {% endfor %}
             </ul>
