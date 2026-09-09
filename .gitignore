@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 credentials.json
+authorized_user.json
 .vscode/
 .idea/
 *.xlsx

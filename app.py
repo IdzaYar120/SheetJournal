@@ -18,7 +18,7 @@ import pandas as pd
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
-from google_sheets import create_academic_journal, CREDENTIALS_PATH
+from google_sheets import create_academic_journal, get_drive_credentials, get_service_account_email
 from doc_import import match_groups_to_rnp, parse_rnp, parse_student_roster
 
 logger = logging.getLogger(__name__)
@@ -407,14 +407,7 @@ def _cleanup_tmp(filepath: str) -> None:
 @app.route("/", methods=["GET"])
 def upload_page():
     """Render the file-upload page, displaying the service email if configured."""
-    service_email = ""
-    if CREDENTIALS_PATH.exists():
-        try:
-            with open(CREDENTIALS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                service_email = data.get("client_email", "")
-        except Exception:
-            pass
+    service_email = get_service_account_email() or ""
 
     roster = load_roster()
     roster_info = None
@@ -489,20 +482,9 @@ def handle_gdoc_import():
     filepath = os.path.join(tmp_dir, filename)
 
     try:
-        from google.oauth2 import service_account
-        import google.auth.transport.requests
         import requests
 
-        scopes = ["https://www.googleapis.com/auth/drive.readonly"]
-        if not CREDENTIALS_PATH.exists():
-            flash("Файл credentials.json не знайдено. Перевірте конфігурацію сервера.", "error")
-            return redirect(url_for("upload_page"))
-
-        creds = service_account.Credentials.from_service_account_file(
-            str(CREDENTIALS_PATH), scopes=scopes
-        )
-        auth_request = google.auth.transport.requests.Request()
-        creds.refresh(auth_request)
+        creds = get_drive_credentials()
 
         headers = {"Authorization": f"Bearer {creds.token}"}
         export_url = f"https://www.googleapis.com/drive/v3/files/{doc_id}/export?mimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -511,8 +493,9 @@ def handle_gdoc_import():
         if response.status_code != 200:
             logger.error("Failed to export Google Doc: %s", response.text)
             flash(
-                "Не вдалося завантажити Google Doc. Переконайтеся, що ви надали доступ для перегляду "
-                "сервісному акаунту або зробили документ доступним за посиланням.",
+                "Не вдалося завантажити Google Doc. Переконайтеся, що документ доступний для перегляду "
+                "тому Google-акаунту, яким авторизований сервіс (сервісний акаунт або той, хто пройшов "
+                "OAuth-вхід), або зробіть документ доступним за посиланням.",
                 "error"
             )
             return redirect(url_for("upload_page"))

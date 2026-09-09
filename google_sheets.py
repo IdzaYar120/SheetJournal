@@ -1,10 +1,14 @@
 """
 Google Sheets integration for Academic Journal creation aligned with Reference.
 
-Uses a Service Account to create and format Google Spreadsheets.
-Expects a credentials JSON file at the path specified by CREDENTIALS_PATH.
+Creates and formats Google Spreadsheets using either a Service Account key or
+an OAuth "Desktop app" Client ID — whichever is found at CREDENTIALS_PATH.
+The OAuth path exists because Google now disables service-account key
+creation by default on new Cloud projects; an OAuth Client ID is not a
+service-account key and isn't affected by that restriction.
 """
 
+import json
 import logging
 import math
 import datetime
@@ -16,16 +20,81 @@ from gspread.utils import rowcol_to_a1
 logger = logging.getLogger(__name__)
 
 CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
+AUTHORIZED_USER_PATH = Path(__file__).parent / "authorized_user.json"
+
+OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+def _credentials_kind() -> str:
+    """Classify CREDENTIALS_PATH as 'service_account', 'oauth_client', 'missing', or 'unknown'."""
+    if not CREDENTIALS_PATH.exists():
+        return "missing"
+    try:
+        with open(CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return "unknown"
+    if data.get("type") == "service_account":
+        return "service_account"
+    if "installed" in data or "web" in data:
+        return "oauth_client"
+    return "unknown"
 
 
 def _get_client() -> gspread.Client:
-    """Authenticate and return a gspread client using Service Account credentials."""
-    if not CREDENTIALS_PATH.exists():
+    """Authenticate and return a gspread client.
+
+    Supports two credentials.json formats:
+      - A service-account key — non-interactive, no login prompt.
+      - An OAuth Client ID (Desktop app) — opens a one-time browser login and
+        caches the resulting token in AUTHORIZED_USER_PATH for reuse.
+    """
+    kind = _credentials_kind()
+    if kind == "missing":
         raise FileNotFoundError(
             f"Файл credentials.json не знайдено за шляхом: {CREDENTIALS_PATH}\n"
-            "Завантажте JSON-ключ сервісного акаунту з Google Cloud Console."
+            "Завантажте ключ сервісного акаунту, або OAuth Client ID (Desktop app), "
+            "з Google Cloud Console."
         )
-    return gspread.service_account(filename=str(CREDENTIALS_PATH))
+    if kind == "service_account":
+        return gspread.service_account(filename=str(CREDENTIALS_PATH))
+    if kind == "oauth_client":
+        return gspread.oauth(
+            scopes=OAUTH_SCOPES,
+            credentials_filename=str(CREDENTIALS_PATH),
+            authorized_user_filename=str(AUTHORIZED_USER_PATH),
+        )
+    raise RuntimeError(
+        "Файл credentials.json має нерозпізнаний формат — це має бути або ключ "
+        "сервісного акаунту (поле \"type\": \"service_account\"), або OAuth Client ID "
+        "(Desktop app, поле \"installed\") у форматі JSON."
+    )
+
+
+def get_drive_credentials():
+    """Return valid Google credentials (either kind) for direct REST calls,
+    e.g. exporting a Google Doc via the Drive API from app.py."""
+    import google.auth.transport.requests
+
+    creds = _get_client().auth
+    if not creds.valid:
+        creds.refresh(google.auth.transport.requests.Request())
+    return creds
+
+
+def get_service_account_email() -> str | None:
+    """Return the service-account email for display, or None when using OAuth
+    (where the signed-in Google account itself is the actor, not a robot email)."""
+    if _credentials_kind() != "service_account":
+        return None
+    try:
+        with open(CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f).get("client_email")
+    except Exception:
+        return None
 
 
 def _col_letter(col_index: int) -> str:
