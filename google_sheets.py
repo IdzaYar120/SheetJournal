@@ -146,6 +146,8 @@ def _coerce(val):
     """Numeric-looking strings become real numbers (so SUM/AVERAGE formulas work),
     formula strings ('=...') are left as-is for openpyxl to store as formulas."""
     if isinstance(val, str) and not val.startswith("="):
+        if re.match(r"^\d{2}\.\d{2}$", val):
+            return val
         try:
             return float(val)
         except ValueError:
@@ -274,7 +276,7 @@ def _populate_pc_sheet(
     teacher_email: str | None = None,
     first_pc_tab_name: str | None = None,
 ) -> None:
-    """Fill and format a single ПК_{ShortName} worksheet."""
+    """Fill and format a single ПК_{ShortName} worksheet matching reference style."""
     class_count = max(class_count, 1)
     total_cols = 2 + class_count
     total_rows = 4 + len(students) + 1
@@ -282,20 +284,17 @@ def _populate_pc_sheet(
     rows_data: list[list] = []
 
     # Row 1: Title Card
-    label = f"{group_name} — {discipline_name}"
+    label = discipline_name
     if control_type == "exam":
         label += " (Екзамен)"
     if teacher_email:
         label += f" (Викладач: {teacher_email})"
-    row1 = [label] + [""] * (total_cols - 1)
+    
+    row1 = ["№ з/п", "ПІП", label] + [""] * (total_cols - 3)
     rows_data.append(row1)
 
-    # Row 2: Date row
-    start_date = datetime.date(2026, 2, 2)
-    dates = []
-    for col_idx in range(class_count):
-        dates.append(start_date + datetime.timedelta(days=7 * col_idx))
-    row2 = ["", ""] + dates
+    # Row 2: Date row (left empty for teacher input)
+    row2 = ["", ""] + [""] * class_count
     rows_data.append(row2)
 
     # Row 3: Class type
@@ -305,18 +304,11 @@ def _populate_pc_sheet(
         types = []
         for i in range(class_count):
             types.append("л" if i % 2 == 0 else "п")
-    row3 = ["вид занять", ""] + types
+    row3 = ["", "вид занять"] + types
     rows_data.append(row3)
 
-    # Row 4: Max points
-    target_total = 80.0 if control_type == "credit" else 50.0
-    num_practicals = sum(1 for t in types if t == "п")
-    if num_practicals > 0:
-        val = round(target_total / num_practicals, 1)
-    else:
-        val = 10.0
-    max_points = [val if t == "п" else "" for t in types]
-    row4 = ["бали", ""] + max_points
+    # Row 4: Max points (left empty for teacher input)
+    row4 = ["", "бали"] + [""] * class_count
     rows_data.append(row4)
 
     # Student rows (Row 5+)
@@ -340,24 +332,59 @@ def _populate_pc_sheet(
 
     last_col_letter = _col_letter(total_cols)
 
-    _apply_format(worksheet, f"A1:{last_col_letter}1", bold=True, size=12, color=_hex(1.0, 1.0, 1.0),
-                  bg=_hex(0.15, 0.27, 0.49), halign="center", valign="center")
-    worksheet.merge_cells(f"A1:{last_col_letter}1")
+    # Merges
+    worksheet.merge_cells("A1:A2")
+    worksheet.merge_cells("B1:B2")
+    if total_cols >= 3:
+        worksheet.merge_cells(f"C1:{last_col_letter}1")
 
-    _apply_format(worksheet, f"A2:{last_col_letter}4", bold=True, size=9,
-                  bg=_hex(0.93, 0.94, 0.96), halign="center", valign="center")
+    # Styling Row 1 & 2
+    # A1, B1 (Yellow background)
+    _apply_format(worksheet, "A1:B2", bg="FFFFFF00", halign="center", valign="center")
+    worksheet["A1"].font = Font(name="Comfortaa", size=11, bold=False)
+    worksheet["B1"].font = Font(name="Comfortaa", size=11, bold=True)
 
-    _apply_format(worksheet, f"B5:B{4 + len(students)}", halign="left", valign="center")
-    _apply_format(worksheet, f"A5:A{4 + len(students)}", halign="center", valign="center")
+    # C1 (Magenta Title)
+    _apply_format(worksheet, f"C1:{last_col_letter}1", bg="FFFF00FF", halign="center", valign="center")
+    worksheet["C1"].font = Font(name="Comfortaa", size=12, bold=True)
 
-    if class_count > 0:
-        class_start = _col_letter(3)
-        _apply_format(worksheet, f"{class_start}5:{last_col_letter}{5 + len(students)}", halign="center", valign="center")
+    # Row 2 Dates (Yellow background, Arial 12pt Bold)
+    _apply_format(worksheet, f"C2:{last_col_letter}2", bg="FFFFFF00", halign="center", valign="bottom")
+    for col_idx in range(3, total_cols + 1):
+        worksheet.cell(row=2, column=col_idx).font = Font(name="Arial", size=12, bold=True)
 
-    _set_col_width(worksheet, "A", 45)
-    _set_col_width(worksheet, "B", 260)
-    if class_count > 0:
-        _set_col_width(worksheet, class_start, 35, end_col_letter=last_col_letter)
+    # Row 3 Class Types (Cyan background)
+    _apply_format(worksheet, f"A3:{last_col_letter}3", bg="FF00FFFF", halign="center", valign="bottom")
+    worksheet["B3"].alignment = Alignment(horizontal="right", vertical="center")
+    worksheet["B3"].font = Font(name="Comfortaa", size=11, bold=True)
+    for col_idx in range(3, total_cols + 1):
+        worksheet.cell(row=3, column=col_idx).font = Font(name="Arial", size=12, bold=True)
+
+    # Row 4 Max Points (Green background)
+    _apply_format(worksheet, f"A4:{last_col_letter}4", bg="FF00FF00", halign="center", valign="bottom")
+    worksheet["B4"].alignment = Alignment(horizontal="right", vertical="bottom")
+    worksheet["B4"].font = Font(name="Comfortaa", size=11, bold=True)
+    for col_idx in range(3, total_cols + 1):
+        worksheet.cell(row=4, column=col_idx).font = Font(name="Arial", size=12)
+
+    # Student rows formatting
+    for r_idx in range(5, 5 + len(students)):
+        worksheet.cell(row=r_idx, column=1).font = Font(name="Comfortaa", size=11)
+        worksheet.cell(row=r_idx, column=1).alignment = Alignment(horizontal="center", vertical="center")
+
+        worksheet.cell(row=r_idx, column=2).font = Font(name="Comfortaa", size=11)
+        worksheet.cell(row=r_idx, column=2).alignment = Alignment(horizontal="left", vertical="center")
+
+        for c_idx in range(3, total_cols + 1):
+            cell = worksheet.cell(row=r_idx, column=c_idx)
+            cell.font = Font(name="Arial", size=12)
+            cell.alignment = Alignment(horizontal="center", vertical="bottom")
+
+    # Column widths matching reference
+    worksheet.column_dimensions["A"].width = 5.25
+    worksheet.column_dimensions["B"].width = 42.75
+    for c_idx in range(3, total_cols + 1):
+        worksheet.column_dimensions[_col_letter(c_idx)].width = 13.0
 
     _apply_borders(worksheet, f"A1:{last_col_letter}{total_rows}")
     _freeze(worksheet, rows=4, cols=2)
@@ -536,7 +563,7 @@ def _create_milestone_sheet(
             pct_letter = _col_letter(col_idx + 1)
 
             pts_formula = f"=SUM('{pc_tab}'!{start_col}{row_num+2}:{end_col}{row_num+2})"
-            pct_formula = f"={pts_letter}{row_num}/{pts_letter}$2*100"
+            pct_formula = f"=IF({pts_letter}$2>0, {pts_letter}{row_num}/{pts_letter}$2*100, 0)"
             ects_formula = (
                 f'=IF(AND({pct_letter}{row_num}<=100,88<={pct_letter}{row_num}),"5A",'
                 f'IF(AND({pct_letter}{row_num}<88,81<={pct_letter}{row_num}),"4B",'
@@ -614,12 +641,12 @@ def _create_helper_sheet(
             pts_letter = _col_letter(col_idx)
 
             if title == "ІНДЗ":
-                pct_formula = f"={pts_letter}{row_num}/${pts_letter}$2*100"
+                pct_formula = f"=IF(${pts_letter}$2>0, {pts_letter}{row_num}/${pts_letter}$2*100, 0)"
             elif title == "ДОД_ІНДЗ":
-                pct_formula = f"={pts_letter}{row_num}/'ІНДЗ'!${pts_letter}$2*100"
+                pct_formula = f"=IF('ІНДЗ'!${pts_letter}$2>0, {pts_letter}{row_num}/'ІНДЗ'!${pts_letter}$2*100, 0)"
             else:
                 ref_pts_col = _col_letter(3 + i * 3)
-                pct_formula = f"={pts_letter}{row_num}/'{ref_sheet}'!${ref_pts_col}$2*100"
+                pct_formula = f"=IF('{ref_sheet}'!${ref_pts_col}$2>0, {pts_letter}{row_num}/'{ref_sheet}'!${ref_pts_col}$2*100, 0)"
 
             row.extend(["", pct_formula])
         rows_data.append(row)
@@ -722,7 +749,7 @@ def _create_sk_sheet(
                     f"'ІНДЗ'!{indz_col}{row_num}+'ДОД_ІНДЗ'!{indz_col}{row_num}"
                 )
                 pts_letter = _col_letter(len(row) + 1)
-                pct_formula = f"={pts_letter}{row_num}/{pts_letter}$2*100"
+                pct_formula = f"=IF({pts_letter}$2>0, {pts_letter}{row_num}/{pts_letter}$2*100, 0)"
                 row.extend([pts_formula, pct_formula])
 
         rows_data.append(row)
@@ -926,24 +953,24 @@ def _create_consolidated_dashboard(
     group_name: str,
     first_pc_tab_name: str | None = None,
 ) -> Worksheet:
-    """Fill and format the final consolidated dashboard "Відомості"."""
+    """Fill and format the final consolidated dashboard "Відомості" matching РК_2526_2_МН_11.xlsx."""
     num_students = len(students)
     total_cols = 3 + len(disciplines) * 3
     total_rows = 10 + num_students
 
     rows_data: list[list] = []
 
-    rows_data.append(["Університет економіки і підприємництва"] + [""] * (total_cols - 1))
+    rows_data.append(["ВІДОМІСТЬ"] + [""] * (total_cols - 1))
     rows_data.append([""] * total_cols)
-    rows_data.append(["", "", "", "", "", "", "", "ХІД"] + [""] * (total_cols - 8))
-    rows_data.append(["", "складання заліків та екзаменів сесії", "", "", "", "", "", ""] + [""] * (total_cols - 8))
-    rows_data.append(["", "2025 / 2026 навчальний рік", "", "", "", "", "", ""] + [""] * (total_cols - 8))
+    rows_data.append([""] * total_cols)
+    rows_data.append(["", "ПІДСУМКОВА ВІДОМІСТЬ"] + [""] * (total_cols - 2))
+    rows_data.append(["", "2025 / 2026 навчальний рік"] + [""] * (total_cols - 2))
 
     first_report_sheet = get_first_v_tab(disciplines)
-    rows_data.append(["", f"='{first_report_sheet}'!A8", "", "", "", "", "група", "", "", "", "", "", group_name] + [""] * (total_cols - 13))
+    rows_data.append(["", f"='{first_report_sheet}'!A8"] + [""] * (total_cols - 2))
     rows_data.append([""] * total_cols)
 
-    row8 = ["№ з/п", "Прізвище, ініціали студента", "Номер індивід. навч. плану", "Заліки, Екзамени"] + [""] * (total_cols - 4)
+    row8 = ["№ з/п", "Прізвище, ініціали студента", "№ залікової книжки", "Заліки, Екзамени"] + [""] * (total_cols - 4)
     rows_data.append(row8)
 
     row9 = ["", "", ""]
@@ -955,7 +982,7 @@ def _create_consolidated_dashboard(
 
     row10 = ["", "", ""]
     for d in disciplines:
-        row10.extend([d["name"], "", ""])
+        row10.extend(["НАЦ", "ECTS", "Бали"])
     rows_data.append(row10)
 
     for idx in range(num_students):
@@ -985,10 +1012,9 @@ def _create_consolidated_dashboard(
             ects_dash_col = _col_letter(3 + i * 3 + 2)
 
             nat_formula = (
-                f'=IFS({ects_dash_col}{row_num}="A",5,{ects_dash_col}{row_num}="B",4,'
-                f'{ects_dash_col}{row_num}="C",4,{ects_dash_col}{row_num}="D",3,'
-                f'{ects_dash_col}{row_num}="E",3,{ects_dash_col}{row_num}="F"," ",'
-                f'{ects_dash_col}{row_num}="FX"," ")'
+                f'=IF({ects_dash_col}{row_num}="A",5,IF({ects_dash_col}{row_num}="B",4,'
+                f'IF({ects_dash_col}{row_num}="C",4,IF({ects_dash_col}{row_num}="D",3,'
+                f'IF({ects_dash_col}{row_num}="E",3,"")))))'
             )
             ects_formula = f"='{v_tab}'!{ects_col}{v_row}"
             score_formula = f"='{v_tab}'!{score_col}{v_row}"
@@ -999,12 +1025,19 @@ def _create_consolidated_dashboard(
     _write_rows(worksheet, rows_data)
 
     last_col_letter = _col_letter(total_cols)
-    _apply_format(worksheet, f"A8:{last_col_letter}10", bold=True, size=9,
-                  bg=_hex(0.85, 0.88, 0.93), halign="center", valign="center")
-    _set_col_width(worksheet, "A", 45)
-    _set_col_width(worksheet, "B", 240)
-    _set_col_width(worksheet, "C", 100)
 
+    # Merges
+    worksheet.merge_cells(f"A1:{last_col_letter}1")
+    worksheet["A1"].font = Font(name="Times New Roman", size=16, bold=True)
+    worksheet["A1"].alignment = Alignment(horizontal="center", vertical="bottom")
+
+    worksheet["B4"].font = Font(name="Times New Roman", size=12, bold=False)
+    worksheet["B5"].font = Font(name="Times New Roman", size=14, bold=False)
+    worksheet["B6"].font = Font(name="Times New Roman", size=12, bold=False)
+
+    worksheet.merge_cells("A8:A10")
+    worksheet.merge_cells("B8:B10")
+    worksheet.merge_cells("C8:C10")
     worksheet.merge_cells(f"D8:{last_col_letter}8")
 
     for i in range(len(disciplines)):
@@ -1012,7 +1045,30 @@ def _create_consolidated_dashboard(
         start_letter = _col_letter(sub_col)
         end_letter = _col_letter(sub_col + 2)
         worksheet.merge_cells(f"{start_letter}9:{end_letter}9")
-        worksheet.merge_cells(f"{start_letter}10:{end_letter}10")
+
+    for r_idx in range(8, 11):
+        for c_idx in range(1, total_cols + 1):
+            cell = worksheet.cell(row=r_idx, column=c_idx)
+            cell.font = Font(name="Times New Roman", size=10, bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r_idx in range(11, 11 + num_students):
+        worksheet.cell(row=r_idx, column=1).font = Font(name="Times New Roman", size=10)
+        worksheet.cell(row=r_idx, column=1).alignment = Alignment(horizontal="right", vertical="bottom")
+
+        worksheet.cell(row=r_idx, column=2).font = Font(name="Times New Roman", size=10)
+        worksheet.cell(row=r_idx, column=2).alignment = Alignment(horizontal="left", vertical="bottom")
+
+        for c_idx in range(3, total_cols + 1):
+            cell = worksheet.cell(row=r_idx, column=c_idx)
+            cell.font = Font(name="Times New Roman", size=10)
+            cell.alignment = Alignment(horizontal="center", vertical="bottom")
+
+    worksheet.column_dimensions["A"].width = 4.38
+    worksheet.column_dimensions["B"].width = 24.0
+    worksheet.column_dimensions["C"].width = 12.0
+    for c_idx in range(4, total_cols + 1):
+        worksheet.column_dimensions[_col_letter(c_idx)].width = 13.0
 
     _apply_borders(worksheet, f"A8:{last_col_letter}{total_rows}")
     _freeze(worksheet, rows=10, cols=2)

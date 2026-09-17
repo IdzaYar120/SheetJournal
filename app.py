@@ -1,8 +1,4 @@
-"""
-Flask application for automated Academic Journal creation.
-Phase 1: File upload, parsing, and preview (Excel, CSV, Word, Google Doc).
-Phase 2: Generate a ready-to-use .xlsx journal — no Google API required.
-"""
+
 
 import csv
 import datetime
@@ -51,10 +47,7 @@ def extract_google_doc_id(url: str) -> str | None:
 
 
 def parse_docx_file(filepath: str) -> dict:
-    """
-    Parse an uploaded Word (.docx) file containing group list table.
-    Expects a table containing student names (under a PІБ column) and disciplines.
-    """
+    
     try:
         import docx
     except ImportError:
