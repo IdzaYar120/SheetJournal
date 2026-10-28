@@ -12,3 +12,6 @@ authorized_user.json
 !sample_data.csv
 *.doc
 data/
+build/
+dist/
+antiword/

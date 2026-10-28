@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -27,7 +28,23 @@ app.secret_key = os.urandom(32)
 ALLOWED_EXTENSIONS = {"xlsx", "xls", "csv", "docx"}
 ALLOWED_ROSTER_RNP_EXTENSIONS = {"doc", "docx"}
 
-DATA_DIR = Path(__file__).parent / "data"
+
+def _default_data_dir() -> Path:
+    """Where the persisted roster and generated files live.
+
+    When packaged as a desktop .exe the program folder may be read-only
+    (e.g. Program Files), so use the per-user %LOCALAPPDATA% instead.
+    """
+    override = os.environ.get("SHEETJOURNAL_DATA_DIR")
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        return Path(base) / "SheetJournal"
+    return Path(__file__).parent / "data"
+
+
+DATA_DIR = _default_data_dir()
 ROSTER_PATH = DATA_DIR / "roster.json"
 BATCH_STATE_DIR = DATA_DIR / "batch_state"
 DOWNLOADS_DIR = DATA_DIR / "downloads"

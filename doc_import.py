@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 # ==========================================================================
@@ -24,9 +25,17 @@ from pathlib import Path
 def _find_antiword() -> tuple[str, str] | None:
     """Locate antiword.exe and its mapping-file directory.
 
-    Looks on PATH first, then falls back to a Git for Windows installation
-    (antiword ships inside Git's bundled mingw64 toolchain).
+    Looks for a copy bundled into the desktop .exe first, then on PATH, then
+    falls back to a Git for Windows installation (antiword ships inside Git's
+    bundled mingw64 toolchain).
     """
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        bundled = Path(bundle_dir) / "antiword"
+        for name in ("antiword.exe", "antiword"):
+            if (bundled / name).exists():
+                return str(bundled / name), str(bundled / "share")
+
     exe = shutil.which("antiword")
     if exe:
         home = Path(exe).resolve().parent.parent / "share" / "antiword"

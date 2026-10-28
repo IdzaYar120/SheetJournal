@@ -1,0 +1,63 @@
+name: Build Windows .exe
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-desktop.txt
+
+      # antiword (needed for legacy .doc files) ships with Git for Windows,
+      # which is preinstalled on the runner. Copy it together with the DLLs
+      # it links against so the .exe works on machines without Git.
+      - name: Bundle antiword
+        shell: bash
+        run: |
+          src=/mingw64/bin/antiword.exe
+          if [ ! -f "$src" ]; then
+            echo "::warning::antiword.exe not found in Git for Windows; .doc import will need Git on the target machine"
+            exit 0
+          fi
+          mkdir -p antiword/share
+          cp "$src" antiword/
+          ldd "$src" | awk '/\/mingw64\/bin\// {print $3}' | xargs -r -I{} cp {} antiword/
+          cp -r /mingw64/share/antiword/. antiword/share/
+          ls -la antiword
+          # Verify it starts without Git on PATH (i.e. all DLLs are bundled).
+          out=$(PATH=/c/Windows/System32 ./antiword/antiword.exe 2>&1 || true)
+          echo "$out" | head -5
+          echo "$out" | grep -qi "antiword" || { echo "::error::bundled antiword failed to start"; exit 1; }
+
+      - name: Smoke-test journal generation
+        run: python smoke_test.py
+
+      - name: Build .exe
+        run: pyinstaller --noconfirm SheetJournal.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SheetJournal-windows
+          path: dist/SheetJournal.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SheetJournal.exe
