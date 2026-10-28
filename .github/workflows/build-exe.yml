@@ -4,6 +4,8 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    # The exe commit below must not trigger another build.
+    paths-ignore: ["SheetJournal.exe"]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,11 @@ permissions:
 
 env:
   PYTHONUTF8: "1"
+
+# Only one build per branch at a time, so the exe commits don't race.
+concurrency:
+  group: build-exe-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -73,3 +80,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/SheetJournal.exe
+
+      # Keep a ready-to-run SheetJournal.exe in the root of main, so that
+      # "Code -> Download ZIP" already contains the program.
+      - name: Commit .exe to main
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          cp dist/SheetJournal.exe SheetJournal.exe
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add SheetJournal.exe
+          git commit -m "Update SheetJournal.exe (built from ${GITHUB_SHA::7}) [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -10,8 +10,8 @@
 
 Для працівників адміністрації не потрібно встановлювати Python чи щось налаштовувати:
 
-1. Завантажте файл **`SheetJournal.exe`** (розділ *Releases* репозиторію на GitHub, або *Actions → Build Windows .exe → Artifacts*).
-2. Двічі клацніть по ньому — відкриється вікно програми з тим самим інтерфейсом, що описаний нижче (розділи 2–4).
+1. На сторінці репозиторію на GitHub натисніть **Code → Download ZIP** і розпакуйте архів (або завантажте лише файл `SheetJournal.exe` з кореня репозиторію).
+2. Двічі клацніть по **`SheetJournal.exe`** — відкриється вікно програми з тим самим інтерфейсом, що описаний нижче (розділи 2–4).
 3. Кнопка «Завантажити .xlsx» відкриває стандартне вікно Windows «Зберегти як».
 
 Примітки:
@@ -19,7 +19,7 @@
 - Утиліта для читання `.doc` (antiword) вже вбудована в `.exe`, Git встановлювати не потрібно.
 - Збережений список студентів зберігається в `%LOCALAPPDATA%\SheetJournal`.
 - Під час першого запуску Windows SmartScreen може попередити про «невідомого видавця» — натисніть «Докладніше → Виконати однаково».
-- Новий `.exe` збирається автоматично при кожному push у GitHub; для публікації релізу створіть тег виду `v1.0` (`git tag v1.0 && git push origin v1.0`). Зібрати локально на Windows: `pip install -r requirements.txt -r requirements-desktop.txt` і `pyinstaller SheetJournal.spec` → `dist\SheetJournal.exe`.
+- Новий `.exe` збирається автоматично при кожному push у гілку `main` і сам комітиться в корінь репозиторію (робить це GitHub Actions, вручну нічого збирати не треба); для публікації окремого релізу створіть тег виду `v1.0` (`git tag v1.0 && git push origin v1.0`). Зібрати локально на Windows: `pip install -r requirements.txt -r requirements-desktop.txt` і `pyinstaller SheetJournal.spec` → `dist\SheetJournal.exe`.
 
 ---
 
